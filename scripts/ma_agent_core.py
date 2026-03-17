@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, TypedDict
+from typing import Any, List, TypedDict
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -31,6 +31,7 @@ class AgentConfig:
     llm_model: str = "qwen2.5:7b"
     k: int = 4
     max_rewrites: int = 2
+    filters: dict[str, Any] | None = None
 
 
 def ensure_vectorstore_ready(chroma_dir: Path) -> None:
@@ -50,6 +51,13 @@ def serialize_documents(docs: List[Document], snippet_chars: int = 400) -> list[
             {
                 "source": str(metadata.get("source", "unknown")),
                 "page": metadata.get("page", "unknown"),
+                "source_file": str(metadata.get("source_file", "unknown")),
+                "document_type": str(metadata.get("document_type", "Unknown")),
+                "jurisdiction": str(metadata.get("jurisdiction", "Unspecified")),
+                "practice_area": str(metadata.get("practice_area", "Unspecified")),
+                "clause_type": str(metadata.get("clause_type", "General")),
+                "section_heading": str(metadata.get("section_heading", "Unspecified")),
+                "doc_id": str(metadata.get("doc_id", "unknown")),
                 "snippet": snippet[:snippet_chars],
             }
         )
@@ -77,7 +85,10 @@ class MAAgent:
             embedding_function=embeddings,
             collection_name=config.collection,
         )
-        self.retriever = vectorstore.as_retriever(search_kwargs={"k": config.k})
+        search_kwargs: dict[str, Any] = {"k": config.k}
+        if config.filters:
+            search_kwargs["filter"] = config.filters
+        self.retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)
         self.llm = ChatOllama(model=config.llm_model, temperature=0.0)
         self.llm_json = ChatOllama(model=config.llm_model, temperature=0.0, format="json")
         self.app = self._build_graph(max_rewrites=config.max_rewrites)
@@ -233,7 +244,7 @@ class MAAgent:
             "answer": final_state.get("generation", ""),
             "rewrites": final_state.get("rewrites", 0),
             "rewrite_history": final_state.get("rewrite_history", []),
+            "filters": self.config.filters or {},
             "documents": serialize_documents(docs),
             "context": context_from_documents(docs),
         }
-

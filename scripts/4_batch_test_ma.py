@@ -15,6 +15,21 @@ DEFAULT_QUERIES_FILE = Path("tests/ma_queries.json")
 DEFAULT_OUTPUT_DIR = Path("outputs")
 
 
+def build_filters(args: argparse.Namespace) -> dict[str, str] | None:
+    filters = {}
+    if args.filter_source:
+        filters["source"] = args.filter_source
+    if args.filter_document_type:
+        filters["document_type"] = args.filter_document_type
+    if args.filter_jurisdiction:
+        filters["jurisdiction"] = args.filter_jurisdiction
+    if args.filter_practice_area:
+        filters["practice_area"] = args.filter_practice_area
+    if args.filter_clause_type:
+        filters["clause_type"] = args.filter_clause_type
+    return filters or None
+
+
 def load_queries(queries_file: Path) -> list[dict[str, str]]:
     if not queries_file.exists():
         raise FileNotFoundError(f"Queries file not found: {queries_file.resolve()}")
@@ -61,6 +76,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-model", default="qwen2.5:7b")
     parser.add_argument("--k", type=int, default=4)
     parser.add_argument("--max-rewrites", type=int, default=2)
+    parser.add_argument("--filter-source", default=None)
+    parser.add_argument("--filter-document-type", default=None)
+    parser.add_argument("--filter-jurisdiction", default=None)
+    parser.add_argument("--filter-practice-area", default=None)
+    parser.add_argument("--filter-clause-type", default=None)
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
 
@@ -81,6 +101,7 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
 def main() -> int:
     args = parse_args()
     queries = load_queries(args.queries_file)
+    filters = build_filters(args)
 
     config = AgentConfig(
         chroma_dir=args.chroma_dir,
@@ -89,6 +110,7 @@ def main() -> int:
         llm_model=args.llm_model,
         k=args.k,
         max_rewrites=args.max_rewrites,
+        filters=filters,
     )
 
     try:
@@ -146,6 +168,7 @@ def main() -> int:
             "max_rewrites": args.max_rewrites,
             "eval_model": args.eval_model,
             "skip_eval": args.skip_eval,
+            "filters": filters or {},
         },
         "summary": summary,
         "results": run_results,
@@ -167,4 +190,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

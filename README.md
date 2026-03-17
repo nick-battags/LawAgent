@@ -2,22 +2,24 @@
 
 Local M&A due-diligence agent scaffold using Ollama + LangChain + LangGraph + Chroma.
 
-This repo is configured so you can test the full pipeline with placeholder public contracts before proprietary deal documents arrive.
+This repo supports a structured Westlaw/Practical Law corpus workflow: recursive ingestion, legal-aware chunking, and metadata-based retrieval filters.
 
 ## What is included
 
 - `scripts/1_ingest_ma.py`  
-  Loads PDFs from `data/`, chunks them, and writes vectors to `chroma_db/`.
+  Ingests `PDF`, `DOCX`, `TXT`, and `MD` files recursively from `data/`, adds metadata, chunks by legal structure, and writes vectors to `chroma_db/`.
 - `scripts/2_agent_ma.py`  
-  Runs a CRAG-like LangGraph flow (`retrieve -> grade -> rewrite? -> generate`).
+  Runs a CRAG-like LangGraph flow (`retrieve -> grade -> rewrite? -> generate`) with optional metadata filters.
 - `scripts/3_eval_ma.py`  
   Scores answer faithfulness against provided excerpts.
 - `scripts/4_batch_test_ma.py`  
-  Runs a query suite and writes JSON results for regression-style review.
-- `data/` and `chroma_db/`  
-  Local corpus and local vector persistence directories.
+  Runs a query suite and writes JSON regression-style results.
+- `training_docs_inbox/`  
+  Drop-zone for raw incoming documents before sorting into `data/`.
 - `tests/ma_queries.json`  
   Starter batch query set.
+- `tests/westlaw_metadata.sample.json`  
+  Example metadata override file.
 
 ## 1) Local setup (Windows PowerShell)
 
@@ -29,6 +31,13 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+If PowerShell blocks activation:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
 ## 2) Pull local Ollama models
 
 ```powershell
@@ -37,57 +46,88 @@ ollama pull nomic-embed-text
 ollama list
 ```
 
-## 3) Add placeholder PDFs
+## 3) Organize incoming documents
 
-Drop 5-10 public contract PDFs into:
+1. Drop new raw files in `training_docs_inbox/`.
+2. Sort selected files into `data/` using a structure like:
 
-`C:\Users\nickv\Documents\GitHub\LawAgent\data\`
+```text
+data/
+  westlaw/
+    agreements/
+    practice_notes/
+    clauses/
+    checklists/
+```
 
-Example filenames:
-- `supply_agreement_acme.pdf`
-- `employment_agreement_exec.pdf`
-- `ip_license_contoso.pdf`
-- `asset_purchase_agreement.pdf`
+3. Name files descriptively, for example:
+- `spa_delaware_2023.pdf`
+- `due_diligence_checklist.docx`
+- `change_of_control_clause.docx`
 
-## 4) Ingest into Chroma
+## 4) Optional metadata overrides
+
+If a filename/folder does not capture enough detail, add manual metadata overrides.
+
+Example file: `tests/westlaw_metadata.sample.json`
+
+Run ingestion with overrides:
+
+```powershell
+python scripts/1_ingest_ma.py --metadata-json .\tests\westlaw_metadata.sample.json
+```
+
+## 5) Ingest into Chroma
+
+Default:
 
 ```powershell
 python scripts/1_ingest_ma.py
 ```
 
-Optional tuning:
+Chunking tuning:
 
 ```powershell
 python scripts/1_ingest_ma.py --chunk-size 1800 --chunk-overlap 180 --collection ma_test
 ```
 
-## 5) Run the CRAG agent
+Keep existing vector DB instead of reset:
+
+```powershell
+python scripts/1_ingest_ma.py --no-reset
+```
+
+## 6) Run the CRAG agent
+
+Basic query:
 
 ```powershell
 python scripts/2_agent_ma.py --query "What are the change of control provisions in the supply agreement?"
 ```
 
-Optional tuning:
+With metadata filters:
 
 ```powershell
-python scripts/2_agent_ma.py --query "What termination rights exist?" --k 6 --max-rewrites 2
+python scripts/2_agent_ma.py `
+  --query "What indemnification cap applies?" `
+  --filter-source "Westlaw Practical Law" `
+  --filter-document-type "Share Purchase Agreement" `
+  --filter-jurisdiction "Delaware"
 ```
 
-Save full run output to JSON (query, rewrites, sources, answer):
+Save full run output:
 
 ```powershell
 python scripts/2_agent_ma.py --query "What are assignment restrictions?" --json-output .\outputs\single_run.json
 ```
 
-## 6) Run answer faithfulness evaluation
-
-Quick built-in sample:
+## 7) Run answer faithfulness evaluation
 
 ```powershell
 python scripts/3_eval_ma.py
 ```
 
-Custom inputs:
+Custom input:
 
 ```powershell
 python scripts/3_eval_ma.py `
@@ -96,42 +136,36 @@ python scripts/3_eval_ma.py `
   --answer "The indemnification cap is $10 million."
 ```
 
-Or with files:
-
-```powershell
-python scripts/3_eval_ma.py --query "..." --context-file .\context.txt --answer-file .\answer.txt
-```
-
-## 7) Batch test multiple diligence questions
+## 8) Batch test multiple diligence questions
 
 ```powershell
 python scripts/4_batch_test_ma.py
 ```
 
-This reads `tests/ma_queries.json` and writes a timestamped JSON report to `outputs/`.
-
-Custom run:
+Custom run with filters:
 
 ```powershell
 python scripts/4_batch_test_ma.py `
   --queries-file .\tests\ma_queries.json `
-  --collection ma_test `
-  --k 6 `
-  --output-file .\outputs\batch_custom.json
+  --filter-source "Westlaw Practical Law" `
+  --filter-practice-area "M&A" `
+  --output-file .\outputs\batch_westlaw.json
 ```
 
-## 8) Switch from placeholder to real deal data
+## 9) Switch from placeholder to real deal data
 
 1. Remove placeholder files from `data/`.
-2. Option A: re-use the same collection by re-ingesting (default resets `chroma_db/`).
-3. Option B: keep side-by-side collections with `--collection ma_deal_abc`.
-4. Re-run ingestion, then run the agent.
+2. Keep old data isolated by switching collection name, for example `--collection ma_deal_abc`.
+3. Re-run ingestion.
+4. Run query/batch scripts with the new collection.
 
 ## Troubleshooting
 
+- If ingestion loads no files, confirm documents are under `data/` and extensions are `pdf/docx/txt/md`.
 - If agent script says vector store is missing, run ingestion first.
 - If Ollama connection fails, confirm Ollama is running and models are pulled.
 - If answers are weak, tune:
   - chunking (`--chunk-size`, `--chunk-overlap`)
   - retrieval depth (`--k`)
   - rewrite retries (`--max-rewrites`)
+  - metadata filters (`--filter-*`)

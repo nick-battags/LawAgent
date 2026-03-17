@@ -1,0 +1,15 @@
+{
+  "westlaw/agreements/spa_delaware_2023.pdf": {
+    "document_type": "Share Purchase Agreement",
+    "jurisdiction": "Delaware",
+    "practice_area": "M&A",
+    "date": "2023-01-15"
+  },
+  "westlaw/practice_notes/due_diligence_checklist.docx": {
+    "document_type": "Checklist",
+    "jurisdiction": "US",
+    "practice_area": "M&A",
+    "clause_type": "General"
+  }
+}
+

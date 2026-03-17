@@ -18,6 +18,21 @@ DEFAULT_MAX_REWRITES = 2
 DEFAULT_QUERY = "What are the change of control provisions in the supply agreement?"
 
 
+def build_filters(args: argparse.Namespace) -> dict[str, str] | None:
+    filters = {}
+    if args.filter_source:
+        filters["source"] = args.filter_source
+    if args.filter_document_type:
+        filters["document_type"] = args.filter_document_type
+    if args.filter_jurisdiction:
+        filters["jurisdiction"] = args.filter_jurisdiction
+    if args.filter_practice_area:
+        filters["practice_area"] = args.filter_practice_area
+    if args.filter_clause_type:
+        filters["clause_type"] = args.filter_clause_type
+    return filters or None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the local M&A CRAG agent.")
     parser.add_argument("--query", default=DEFAULT_QUERY)
@@ -27,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL)
     parser.add_argument("--k", type=int, default=DEFAULT_K)
     parser.add_argument("--max-rewrites", type=int, default=DEFAULT_MAX_REWRITES)
+    parser.add_argument("--filter-source", default=None)
+    parser.add_argument("--filter-document-type", default=None)
+    parser.add_argument("--filter-jurisdiction", default=None)
+    parser.add_argument("--filter-practice-area", default=None)
+    parser.add_argument("--filter-clause-type", default=None)
     parser.add_argument(
         "--json-output",
         type=Path,
@@ -43,6 +63,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    filters = build_filters(args)
 
     config = AgentConfig(
         chroma_dir=args.chroma_dir,
@@ -51,6 +72,7 @@ def main() -> int:
         llm_model=args.llm_model,
         k=args.k,
         max_rewrites=args.max_rewrites,
+        filters=filters,
     )
 
     try:
@@ -60,6 +82,8 @@ def main() -> int:
         return 1
 
     print(f"\nQuery: {args.query}\n")
+    if filters:
+        print(f"Active metadata filters: {json.dumps(filters)}")
     result = agent.run(args.query)
 
     print("\n" + "=" * 60)

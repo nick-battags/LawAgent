@@ -12,6 +12,8 @@ data/*
 !data/.gitkeep
 outputs/*
 !outputs/.gitkeep
+training_docs_inbox/*
+!training_docs_inbox/.gitkeep
 
 # Local env files
 .env
