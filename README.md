@@ -7,7 +7,7 @@ This repo supports a structured Westlaw/Practical Law corpus workflow: recursive
 ## What is included
 
 - `scripts/1_ingest_ma.py`  
-  Ingests `PDF`, `DOCX`, `TXT`, and `MD` files recursively from `data/`, adds metadata, chunks by legal structure, and writes vectors to `chroma_db/`.
+  Ingests `PDF`, `DOCX`, `TXT`, and `MD` files recursively from `data/`, adds metadata, performs format-aware cleanup, chunks by legal structure, and writes vectors to `chroma_db/`.
 - `scripts/2_agent_ma.py`  
   Runs a CRAG-like LangGraph flow (`retrieve -> grade -> rewrite? -> generate`) with optional metadata filters.
 - `scripts/3_eval_ma.py`  
@@ -85,10 +85,20 @@ Default:
 python scripts/1_ingest_ma.py
 ```
 
+Notes:
+- PDF extraction prefers layout-aware parsing and merges short adjacent pages for better clause continuity.
+- DOCX extraction preserves heading/list cues and converts tables into markdown-style text blocks.
+
 Chunking tuning:
 
 ```powershell
 python scripts/1_ingest_ma.py --chunk-size 1800 --chunk-overlap 180 --collection ma_test
+```
+
+PDF merge tuning:
+
+```powershell
+python scripts/1_ingest_ma.py --pdf-merge-min-chars 1200
 ```
 
 Keep existing vector DB instead of reset:

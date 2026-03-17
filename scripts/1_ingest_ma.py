@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from docx import Document as DocxDocument
+from docx.document import Document as DocxContainer
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
@@ -25,6 +30,7 @@ DEFAULT_COLLECTION = "ma_test"
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_CHUNK_SIZE = 2000
 DEFAULT_CHUNK_OVERLAP = 200
+DEFAULT_PDF_MERGE_MIN_CHARS = 900
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
 LEGAL_SEPARATORS = [
@@ -166,7 +172,7 @@ def load_metadata_overrides(metadata_json: Path | None) -> dict[str, dict[str, A
     if not metadata_json.exists():
         raise FileNotFoundError(f"Metadata file not found: {metadata_json.resolve()}")
 
-    payload = json.loads(metadata_json.read_text(encoding="utf-8"))
+    payload = json.loads(metadata_json.read_text(encoding="utf-8-sig"))
     if not isinstance(payload, dict):
         raise ValueError("Metadata override file must be a JSON object.")
 
@@ -223,6 +229,53 @@ def clean_text(text: str) -> str:
     return cleaned.strip()
 
 
+def normalize_inline_whitespace(text: str) -> str:
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def iter_docx_blocks(document: DocxContainer):
+    for child in document.element.body.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, document)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, document)
+
+
+def collect_docx_noise_lines(docx_file: DocxDocument) -> set[str]:
+    noise_lines: set[str] = set()
+    for section in docx_file.sections:
+        for container in (section.header, section.footer):
+            for paragraph in container.paragraphs:
+                text = normalize_inline_whitespace(paragraph.text)
+                if text and len(text) <= 160:
+                    noise_lines.add(text)
+    return noise_lines
+
+
+def render_docx_table(table: Table) -> str:
+    rows: list[list[str]] = []
+    for row in table.rows:
+        cells = [normalize_inline_whitespace(cell.text) for cell in row.cells]
+        if any(cells):
+            rows.append(cells)
+
+    if not rows:
+        return ""
+
+    width = max(len(row) for row in rows)
+    normalized_rows = [row + [""] * (width - len(row)) for row in rows]
+
+    table_lines = [f"| {' | '.join(normalized_rows[0])} |"]
+    if len(normalized_rows) > 1:
+        table_lines.append(f"| {' | '.join(['---'] * width)} |")
+        for row in normalized_rows[1:]:
+            table_lines.append(f"| {' | '.join(row)} |")
+    else:
+        table_lines.append(f"| {' | '.join(['---'] * width)} |")
+
+    return "\n".join(table_lines)
+
+
 def trim_repeated_boundary_lines(text: str, noisy_lines: set[str]) -> str:
     lines = text.splitlines()
     while lines and lines[0].strip() in noisy_lines:
@@ -262,8 +315,103 @@ def remove_repeated_pdf_headers_footers(docs: list[Document]) -> list[Document]:
     return docs
 
 
+def merge_small_pdf_pages(docs: list[Document], min_chars: int) -> list[Document]:
+    if min_chars <= 0:
+        return docs
+
+    grouped: dict[str, list[Document]] = defaultdict(list)
+    non_pdf_docs: list[Document] = []
+
+    for doc in docs:
+        if str(doc.metadata.get("file_extension", "")).lower() == ".pdf":
+            grouped[str(doc.metadata.get("source_file", "unknown"))].append(doc)
+        else:
+            non_pdf_docs.append(doc)
+
+    merged_docs: list[Document] = []
+    for _, page_docs in grouped.items():
+        ordered = sorted(
+            page_docs,
+            key=lambda d: int(d.metadata.get("page", 10**9))
+            if str(d.metadata.get("page", "")).isdigit()
+            else 10**9,
+        )
+
+        buffer_text: list[str] = []
+        page_start: int | None = None
+        page_end: int | None = None
+        base_metadata: dict[str, Any] | None = None
+
+        def flush_buffer() -> None:
+            nonlocal buffer_text, page_start, page_end, base_metadata
+            if not buffer_text or base_metadata is None:
+                return
+            metadata = dict(base_metadata)
+            metadata["page_start"] = page_start if page_start is not None else "n/a"
+            metadata["page_end"] = page_end if page_end is not None else "n/a"
+            if page_start is not None and page_end is not None:
+                metadata["page"] = page_start if page_start == page_end else f"{page_start}-{page_end}"
+            else:
+                metadata["page"] = "n/a"
+            merged_docs.append(Document(page_content="\n\n".join(buffer_text).strip(), metadata=metadata))
+            buffer_text = []
+            page_start = None
+            page_end = None
+            base_metadata = None
+
+        for page_doc in ordered:
+            text = page_doc.page_content.strip()
+            if not text:
+                continue
+
+            page_value = page_doc.metadata.get("page")
+            numeric_page = page_value if isinstance(page_value, int) else None
+            if isinstance(page_value, str) and page_value.isdigit():
+                numeric_page = int(page_value)
+
+            if base_metadata is None:
+                base_metadata = dict(page_doc.metadata)
+                page_start = numeric_page
+
+            page_marker = f"[PAGE {numeric_page}]\n{text}" if numeric_page is not None else text
+            buffer_text.append(page_marker)
+            if numeric_page is not None:
+                page_end = numeric_page
+
+            if sum(len(part) for part in buffer_text) >= min_chars:
+                flush_buffer()
+
+        flush_buffer()
+
+    def page_sort_value(doc: Document) -> int:
+        value = doc.metadata.get("page_start", doc.metadata.get("page", "n/a"))
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            if value.isdigit():
+                return int(value)
+            if "-" in value:
+                first = value.split("-", maxsplit=1)[0]
+                if first.isdigit():
+                    return int(first)
+        return 10**9
+
+    optimized_docs = non_pdf_docs + merged_docs
+    optimized_docs.sort(
+        key=lambda d: (
+            str(d.metadata.get("source_file", "")),
+            page_sort_value(d),
+        )
+    )
+    return optimized_docs
+
+
 def load_pdf(file_path: Path, data_dir: Path, metadata_overrides: dict[str, dict[str, Any]]) -> list[Document]:
-    loader = PyPDFLoader(str(file_path))
+    try:
+        # Layout mode typically preserves legal section formatting better.
+        loader = PyPDFLoader(str(file_path), extraction_mode="layout")
+    except TypeError:
+        loader = PyPDFLoader(str(file_path))
     docs = loader.load()
     base_metadata = build_base_metadata(file_path, data_dir, metadata_overrides)
     for doc in docs:
@@ -280,12 +428,33 @@ def load_docx(
     metadata_overrides: dict[str, dict[str, Any]],
 ) -> list[Document]:
     docx_file = DocxDocument(str(file_path))
-    paragraphs = [p.text.strip() for p in docx_file.paragraphs if p.text and p.text.strip()]
-    text = "\n\n".join(paragraphs).strip()
+    noise_lines = collect_docx_noise_lines(docx_file)
+    blocks: list[str] = []
+
+    for block in iter_docx_blocks(docx_file):
+        if isinstance(block, Paragraph):
+            text = normalize_inline_whitespace(block.text)
+            if not text or text in noise_lines:
+                continue
+
+            style_name = normalize_inline_whitespace(getattr(block.style, "name", "")).lower()
+            if "heading" in style_name or "title" in style_name:
+                blocks.append(f"Section {text}")
+            elif "list" in style_name:
+                blocks.append(f"- {text}")
+            else:
+                blocks.append(text)
+        else:
+            table_text = render_docx_table(block)
+            if table_text:
+                blocks.append(f"[TABLE]\n{table_text}")
+
+    text = "\n\n".join(blocks).strip()
     if not text:
         return []
     metadata = build_base_metadata(file_path, data_dir, metadata_overrides)
     metadata["page"] = "n/a"
+    metadata["has_tables"] = any(block.startswith("[TABLE]") for block in blocks)
     return [Document(page_content=text, metadata=metadata)]
 
 
@@ -322,6 +491,7 @@ def load_documents(
     data_dir: Path,
     metadata_overrides: dict[str, dict[str, Any]],
     skip_clean: bool,
+    pdf_merge_min_chars: int,
 ) -> list[Document]:
     data_dir.mkdir(parents=True, exist_ok=True)
     files = sorted(path for path in data_dir.rglob("*") if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS)
@@ -349,7 +519,9 @@ def load_documents(
             doc.page_content = clean_text(doc.page_content)
         docs = [doc for doc in docs if doc.page_content.strip()]
 
-    print(f"Loaded {len(docs)} raw document units from {len(files)} files.")
+    docs = merge_small_pdf_pages(docs, min_chars=pdf_merge_min_chars)
+
+    print(f"Loaded {len(docs)} normalized document units from {len(files)} files.")
     return docs
 
 
@@ -385,6 +557,7 @@ def ingest(
     embed_model: str,
     chunk_size: int,
     chunk_overlap: int,
+    pdf_merge_min_chars: int,
     reset_db: bool,
     metadata_overrides: dict[str, dict[str, Any]],
     skip_clean: bool,
@@ -398,6 +571,7 @@ def ingest(
         data_dir=data_dir,
         metadata_overrides=metadata_overrides,
         skip_clean=skip_clean,
+        pdf_merge_min_chars=pdf_merge_min_chars,
     )
     if not docs:
         print("No documents were loaded; ingestion skipped.")
@@ -428,6 +602,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
     parser.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP)
     parser.add_argument(
+        "--pdf-merge-min-chars",
+        type=int,
+        default=DEFAULT_PDF_MERGE_MIN_CHARS,
+        help="Merge adjacent PDF pages until this many characters are accumulated.",
+    )
+    parser.add_argument(
         "--metadata-json",
         type=Path,
         default=None,
@@ -454,6 +634,8 @@ def main() -> int:
         raise SystemExit("chunk-overlap must be >= 0")
     if args.chunk_overlap >= args.chunk_size:
         raise SystemExit("chunk-overlap must be smaller than chunk-size")
+    if args.pdf_merge_min_chars < 0:
+        raise SystemExit("pdf-merge-min-chars must be >= 0")
 
     metadata_overrides = load_metadata_overrides(args.metadata_json)
     return ingest(
@@ -463,6 +645,7 @@ def main() -> int:
         embed_model=args.embed_model,
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap,
+        pdf_merge_min_chars=args.pdf_merge_min_chars,
         reset_db=not args.no_reset,
         metadata_overrides=metadata_overrides,
         skip_clean=args.skip_clean,

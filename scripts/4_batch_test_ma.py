@@ -34,7 +34,7 @@ def load_queries(queries_file: Path) -> list[dict[str, str]]:
     if not queries_file.exists():
         raise FileNotFoundError(f"Queries file not found: {queries_file.resolve()}")
 
-    raw = json.loads(queries_file.read_text(encoding="utf-8"))
+    raw = json.loads(queries_file.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, list):
         raise ValueError("Queries file must be a JSON array.")
 
