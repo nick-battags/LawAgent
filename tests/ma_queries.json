@@ -1,0 +1,23 @@
+[
+  {
+    "id": "q1_change_of_control",
+    "query": "What are the change of control provisions in the supply agreement?"
+  },
+  {
+    "id": "q2_termination",
+    "query": "What termination rights and cure periods are provided?"
+  },
+  {
+    "id": "q3_indemnity_cap",
+    "query": "Is there an indemnification cap, and are there carve-outs?"
+  },
+  {
+    "id": "q4_assignment",
+    "query": "Can either party assign the agreement without consent?"
+  },
+  {
+    "id": "q5_mac",
+    "query": "Does the contract define a material adverse change and where is it used?"
+  }
+]
+

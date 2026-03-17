@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local vector database and test corpus
+chroma_db/*
+!chroma_db/.gitkeep
+data/*
+!data/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# Local env files
+.env
