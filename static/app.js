@@ -8,7 +8,6 @@ const analysisResult = document.querySelector("#analysisResult");
 const templateForm = document.querySelector("#templateForm");
 const draftOutput = document.querySelector("#draftOutput");
 const copyDraft = document.querySelector("#copyDraft");
-const sourceCards = document.querySelector("#sourceCards");
 const sessionUpload = document.querySelector("#sessionUpload");
 const sessionStatus = document.querySelector("#sessionStatus");
 const sessionDocs = document.querySelector("#sessionDocs");
@@ -289,29 +288,4 @@ copyDraft.addEventListener("click", async () => {
   }, 1200);
 });
 
-async function renderSources() {
-  try {
-    const data = await getJson("/api/retrieve?q=merger acquisition indemnification representations closing conditions assignment");
-    if (!data.results || !data.results.length) {
-      sourceCards.innerHTML = `<p class="muted">No knowledge base entries available.</p>`;
-      return;
-    }
-    sourceCards.innerHTML = data.results
-      .slice(0, 6)
-      .map(
-        (item) => `
-        <article class="source-card">
-          <span class="tag">${escapeHtml(item.topic.replaceAll("_", " "))}</span>
-          <h3>${escapeHtml(item.title)}</h3>
-          <p>${escapeHtml(item.drafting_tip)}</p>
-          <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">Open source reference</a>
-        </article>`
-      )
-      .join("");
-  } catch {
-    sourceCards.innerHTML = `<p class="muted">Could not load knowledge base references.</p>`;
-  }
-}
-
 buildTemplateForm();
-renderSources();
