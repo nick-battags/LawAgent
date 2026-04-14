@@ -22,13 +22,18 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python scripts/replit_runner.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
+args = "python app.py"
+waitForPort = 5000
 
 [deployment]
-deploymentTarget = "vm"
-run = ["python", "scripts/replit_runner.py"]
+deploymentTarget = "autoscale"
+run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "app:app"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80

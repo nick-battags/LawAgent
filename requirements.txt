@@ -21,3 +21,5 @@ openpyxl
 pypdf
 python-docx
 tiktoken
+flask
+gunicorn

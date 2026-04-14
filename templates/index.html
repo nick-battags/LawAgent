@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LawAgent | M&A Corrective RAG</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="hero">
+      <nav>
+        <div class="brand">LawAgent</div>
+        <div class="pill">M&A Corrective RAG Demo</div>
+      </nav>
+      <section class="hero-grid">
+        <div>
+          <p class="eyebrow">Legal diligence assistant</p>
+          <h1>Issue-spot contracts and draft M&A templates from a guided Q&A.</h1>
+          <p class="lede">
+            Paste an agreement to identify missing or weak legal provisions, retrieve source-backed drafting guidance,
+            and generate corrective clauses. Then use the template assistant to produce a first-draft merger agreement.
+          </p>
+          <div class="hero-actions">
+            <button class="primary" data-scroll="analyzer">Analyze a contract</button>
+            <button class="secondary" data-scroll="template">Draft from Q&A</button>
+          </div>
+        </div>
+        <div class="pipeline-card">
+          <h2>CRAG pipeline</h2>
+          <ol>
+            <li><strong>Retrieve</strong> M&A clause guidance and public filing references.</li>
+            <li><strong>Grade</strong> pasted text against expected deal coverage.</li>
+            <li><strong>Correct</strong> missing issues with targeted clauses and follow-ups.</li>
+            <li><strong>Generate</strong> reports and first-draft agreement language.</li>
+          </ol>
+        </div>
+      </section>
+    </header>
+
+    <main>
+      <section id="analyzer" class="panel">
+        <div class="section-heading">
+          <p class="eyebrow">Contract review</p>
+          <h2>Paste an M&A contract for issue spotting</h2>
+          <p>Works with merger agreements, stock purchase agreements, asset purchase agreements, LOIs, and term-sheet style drafts.</p>
+        </div>
+        <div class="workspace">
+          <div class="input-card">
+            <div class="input-toolbar">
+              <button id="loadSample" class="ghost">Load sample</button>
+              <button id="clearContract" class="ghost">Clear</button>
+            </div>
+            <textarea id="contractText" placeholder="Paste contract text here..."></textarea>
+            <button id="analyzeBtn" class="primary wide">Run issue spotting</button>
+          </div>
+          <div class="output-card">
+            <div id="analysisEmpty" class="empty">
+              <h3>Analysis output</h3>
+              <p>Your risk summary, clause map, corrective issues, and retrieved references will appear here.</p>
+            </div>
+            <div id="analysisResult" class="hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="template" class="panel alt">
+        <div class="section-heading">
+          <p class="eyebrow">Template assistant</p>
+          <h2>Answer deal questions to fill a merger agreement draft</h2>
+          <p>The assistant asks for core deal facts, then generates a structured first draft with corrective follow-up questions.</p>
+        </div>
+        <div class="template-grid">
+          <form id="templateForm" class="form-card"></form>
+          <div class="draft-card">
+            <div class="draft-toolbar">
+              <h3>Generated draft</h3>
+              <button id="copyDraft" class="ghost">Copy draft</button>
+            </div>
+            <pre id="draftOutput">Complete the Q&A fields and generate a draft.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel sources">
+        <div class="section-heading">
+          <p class="eyebrow">Knowledge base</p>
+          <h2>Public-reference drafting corpus</h2>
+          <p>
+            The demo uses a curated local M&A knowledge base based on common clauses found in public SEC EDGAR acquisition agreement filings.
+            It references public sources without copying proprietary templates.
+          </p>
+        </div>
+        <div id="sourceCards" class="source-grid"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Educational drafting support only; not legal advice. Have qualified counsel review before relying on any output.</p>
+    </footer>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
