@@ -192,7 +192,14 @@ clearContract.addEventListener("click", () => {
 });
 
 analyzeBtn.addEventListener("click", async () => {
+  if (!contractText.value.trim() || contractText.value.trim().length < 30) {
+    analysisEmpty.classList.add("hidden");
+    analysisResult.classList.remove("hidden");
+    analysisResult.innerHTML = `<div class="issue medium"><h3>Contract text required</h3><p>Paste at least a few sentences of contract text, or click "Load sample" to try a demo agreement.</p></div>`;
+    return;
+  }
   analyzeBtn.disabled = true;
+  analyzeV2Btn.disabled = true;
   analyzeBtn.textContent = "Analyzing...";
   try {
     const data = await getJson("/api/analyze", {
@@ -207,11 +214,19 @@ analyzeBtn.addEventListener("click", async () => {
     analysisResult.innerHTML = `<div class="issue high"><h3>Unable to analyze</h3><p>${escapeHtml(error.message)}</p></div>`;
   } finally {
     analyzeBtn.disabled = false;
+    analyzeV2Btn.disabled = false;
     analyzeBtn.textContent = "Run issue spotting";
   }
 });
 
 analyzeV2Btn.addEventListener("click", async () => {
+  if (!contractText.value.trim() || contractText.value.trim().length < 30) {
+    analysisEmpty.classList.add("hidden");
+    analysisResult.classList.remove("hidden");
+    analysisResult.innerHTML = `<div class="issue medium"><h3>Contract text required</h3><p>Paste at least a few sentences of contract text, or click "Load sample" to try a demo agreement.</p></div>`;
+    return;
+  }
+  analyzeBtn.disabled = true;
   analyzeV2Btn.disabled = true;
   analyzeV2Btn.textContent = "Running V2 CRAG...";
   try {
@@ -229,6 +244,7 @@ analyzeV2Btn.addEventListener("click", async () => {
     analysisResult.classList.remove("hidden");
     analysisResult.innerHTML = `<div class="issue high"><h3>Unable to analyze with V2</h3><p>${escapeHtml(error.message)}</p></div>`;
   } finally {
+    analyzeBtn.disabled = false;
     analyzeV2Btn.disabled = false;
     analyzeV2Btn.textContent = "Run V2 database CRAG";
   }
@@ -274,19 +290,27 @@ copyDraft.addEventListener("click", async () => {
 });
 
 async function renderSources() {
-  const data = await getJson("/api/retrieve?q=merger acquisition indemnification representations closing conditions assignment");
-  sourceCards.innerHTML = data.results
-    .slice(0, 6)
-    .map(
-      (item) => `
-      <article class="source-card">
-        <span class="tag">${escapeHtml(item.topic.replaceAll("_", " "))}</span>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.drafting_tip)}</p>
-        <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">Open source reference</a>
-      </article>`
-    )
-    .join("");
+  try {
+    const data = await getJson("/api/retrieve?q=merger acquisition indemnification representations closing conditions assignment");
+    if (!data.results || !data.results.length) {
+      sourceCards.innerHTML = `<p class="muted">No knowledge base entries available.</p>`;
+      return;
+    }
+    sourceCards.innerHTML = data.results
+      .slice(0, 6)
+      .map(
+        (item) => `
+        <article class="source-card">
+          <span class="tag">${escapeHtml(item.topic.replaceAll("_", " "))}</span>
+          <h3>${escapeHtml(item.title)}</h3>
+          <p>${escapeHtml(item.drafting_tip)}</p>
+          <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">Open source reference</a>
+        </article>`
+      )
+      .join("");
+  } catch {
+    sourceCards.innerHTML = `<p class="muted">Could not load knowledge base references.</p>`;
+  }
 }
 
 buildTemplateForm();

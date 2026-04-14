@@ -491,10 +491,17 @@ footer {
   line-height: 1.5;
 }
 
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
   .hero-grid,
   .workspace,
-  .template-grid {
+  .template-grid,
+  .context-grid,
+  .corpus-grid {
     grid-template-columns: 1fr;
   }
 

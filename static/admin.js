@@ -1,9 +1,14 @@
+let cachedDocs = [];
+
 document.querySelectorAll(".sidebar-link").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".sidebar-link").forEach((b) => b.classList.remove("active"));
     document.querySelectorAll(".admin-panel").forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
     document.querySelector(`#panel-${btn.dataset.panel}`).classList.add("active");
+    if (btn.dataset.panel === "documents") {
+      renderDocumentTable(cachedDocs);
+    }
   });
 });
 
@@ -36,6 +41,7 @@ function renderDashboard(data) {
 
   const docList = document.getElementById("dashboardDocList");
   const docs = data.documents || [];
+  cachedDocs = docs;
   if (!docs.length) {
     docList.innerHTML = `<div class="admin-card wide"><p class="muted">No documents ingested yet. Use the Corpus Management panel to add training data.</p></div>`;
     return;

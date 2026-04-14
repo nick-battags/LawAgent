@@ -14,8 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 EDGAR_DOWNLOAD_DIR = ROOT / "training_docs_inbox" / "edgar"
 
 EFTS_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
-EDGAR_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
-EDGAR_FILING_URL = "https://www.sec.gov/Archives/edgar/data"
 EDGAR_BASE = "https://www.sec.gov"
 
 HEADERS = {
