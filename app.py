@@ -191,18 +191,49 @@ def v2_ingest_deposits():
 @app.post("/api/v2/corpus/upload")
 @_require_admin
 def v2_upload_document():
-    uploaded = request.files.get("file")
-    if uploaded is None or not uploaded.filename:
-        return jsonify({"error": "Choose a PDF, DOCX, TXT, or MD file to upload."}), 400
-    filename = secure_filename(uploaded.filename)
-    suffix = Path(filename).suffix.lower()
-    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
-        return jsonify({"error": "Only PDF, DOCX, TXT, and MD files are supported."}), 400
+    files = request.files.getlist("file")
+    if not files or not any(f.filename for f in files):
+        return jsonify({"error": "Choose one or more PDF, DOCX, TXT, or MD files to upload."}), 400
+
+    tag_overrides: dict[str, str] = {}
+    for key in ("jurisdiction", "deal_stance", "deal_structure"):
+        val = request.form.get(key, "").strip()
+        if val:
+            tag_overrides[key] = val
+
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    target = UPLOAD_DIR / filename
-    uploaded.save(target)
-    result = get_db().upsert_document(target)
-    return jsonify({"result": result, "status": get_db().stats()})
+    results = []
+    errors = []
+    for uploaded in files:
+        if not uploaded.filename:
+            continue
+        filename = secure_filename(uploaded.filename)
+        suffix = Path(filename).suffix.lower()
+        if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+            errors.append({"file": filename, "error": "Unsupported file type"})
+            continue
+        target = UPLOAD_DIR / filename
+        uploaded.save(target)
+        result = get_db().upsert_document(target, tag_overrides=tag_overrides or None)
+        results.append(result)
+
+    return jsonify({"results": results, "errors": errors, "status": get_db().stats()})
+
+
+@app.post("/api/v2/corpus/document/<int:doc_id>/tags")
+@_require_admin
+def v2_update_tags(doc_id: int):
+    body = request.get_json(silent=True) or {}
+    tags = {}
+    for key in ("jurisdiction", "deal_stance", "deal_structure"):
+        if key in body:
+            tags[key] = str(body[key]).strip()
+    if not tags:
+        return jsonify({"error": "Provide at least one tag: jurisdiction, deal_stance, deal_structure"}), 400
+    result = get_db().update_document_tags(doc_id, tags)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
 
 
 @app.get("/api/v2/retrieve")

@@ -39,6 +39,9 @@ class CorpusDocument:
     checksum: str
     chunk_count: int
     created_at: str
+    jurisdiction: str = ""
+    deal_stance: str = ""
+    deal_structure: str = ""
 
 
 def now_iso() -> str:
@@ -94,6 +97,62 @@ def classify_document(title: str, text: str) -> dict[str, str]:
         if any(keyword in haystack for keyword in keywords):
             return {"category": category, "document_type": doc_type}
     return {"category": "general_ma", "document_type": "Training Document"}
+
+
+def detect_tags(title: str, text: str) -> dict[str, str]:
+    haystack = f"{title}\n{text[:12000]}".lower()
+
+    jurisdiction = ""
+    jurisdiction_rules = [
+        ("Delaware", ["delaware", "del. code", "court of chancery", "8 del. c."]),
+        ("New York", ["new york", "n.y.", "nyc", "manhattan"]),
+        ("California", ["california", "cal. corp. code", "calif."]),
+        ("Texas", ["texas", "tex. bus. org. code"]),
+        ("Nevada", ["nevada", "nev. rev. stat"]),
+        ("Illinois", ["illinois", "ill. bus. corp. act"]),
+        ("United Kingdom", ["english law", "uk", "united kingdom", "companies act 2006"]),
+        ("Canada", ["canada", "canadian", "cbca", "ontario"]),
+        ("Federal/Multi-State", ["federal", "multi-state", "multiple jurisdictions"]),
+    ]
+    for label, keywords in jurisdiction_rules:
+        if any(kw in haystack for kw in keywords):
+            jurisdiction = label
+            break
+
+    deal_stance = ""
+    pro_seller_signals = [
+        "seller-friendly", "pro-seller", "seller favorable", "seller's sole discretion",
+        "no survival", "no indemnification", "as-is", "limited representations",
+        "seller shall not be liable", "cap on liability", "de minimis",
+    ]
+    pro_buyer_signals = [
+        "buyer-friendly", "pro-buyer", "buyer favorable", "buyer's sole discretion",
+        "full indemnification", "unlimited survival", "bring-down condition",
+        "specific performance", "material adverse effect", "buyer's option",
+        "escrow fund", "holdback amount", "extensive representations",
+    ]
+    seller_hits = sum(1 for s in pro_seller_signals if s in haystack)
+    buyer_hits = sum(1 for s in pro_buyer_signals if s in haystack)
+    if seller_hits > buyer_hits and seller_hits >= 2:
+        deal_stance = "pro-seller"
+    elif buyer_hits > seller_hits and buyer_hits >= 2:
+        deal_stance = "pro-buyer"
+    elif seller_hits >= 1 or buyer_hits >= 1:
+        deal_stance = "balanced"
+
+    deal_structure = ""
+    if any(phrase in haystack for phrase in ["asset purchase", "asset acquisition", "bill of sale", "assumed liabilities", "purchased assets"]):
+        deal_structure = "asset purchase"
+    elif any(phrase in haystack for phrase in ["stock purchase", "equity purchase", "share purchase", "all outstanding shares", "stock acquisition"]):
+        deal_structure = "stock purchase"
+    elif any(phrase in haystack for phrase in ["merger agreement", "agreement and plan of merger", "surviving corporation", "merger sub"]):
+        deal_structure = "merger"
+
+    return {
+        "jurisdiction": jurisdiction,
+        "deal_stance": deal_stance,
+        "deal_structure": deal_structure,
+    }
 
 
 def detect_source_system(text: str, path: Path | None = None) -> str:
@@ -218,7 +277,7 @@ class CorpusDatabase:
             connection.commit()
         CorpusDatabase._schema_initialized = True
 
-    def upsert_document(self, path: Path) -> dict[str, Any]:
+    def upsert_document(self, path: Path, tag_overrides: dict[str, str] | None = None) -> dict[str, Any]:
         self.init_schema()
         path = path.resolve()
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -232,11 +291,19 @@ class CorpusDatabase:
 
         classification = classify_document(path.stem, full_text)
         source_system = detect_source_system(full_text, path)
+        tags = detect_tags(path.stem, full_text)
+        if tag_overrides:
+            for key in ("jurisdiction", "deal_stance", "deal_structure"):
+                if tag_overrides.get(key):
+                    tags[key] = tag_overrides[key]
         metadata = {
             "original_filename": path.name,
             "extension": path.suffix.lower(),
             "word_count": len(re.findall(r"\w+", full_text)),
             "ingested_at": now_iso(),
+            "jurisdiction": tags["jurisdiction"],
+            "deal_stance": tags["deal_stance"],
+            "deal_structure": tags["deal_structure"],
         }
 
         splitter = RecursiveCharacterTextSplitter(chunk_size=1400, chunk_overlap=180)
@@ -248,8 +315,28 @@ class CorpusDatabase:
                     chunks.append({"text": text, "page": int(split.metadata.get("page", 1) or 1)})
 
         with self.connect() as connection:
-            existing = self._fetch_one(connection, "SELECT id, checksum FROM lawagent_documents WHERE source_path = %s", (str(path),))
+            existing = self._fetch_one(connection, "SELECT id, checksum, metadata FROM lawagent_documents WHERE source_path = %s", (str(path),))
             if existing and existing["checksum"] == checksum:
+                old_meta = existing.get("metadata") or {}
+                if isinstance(old_meta, str):
+                    try:
+                        old_meta = json.loads(old_meta)
+                    except (json.JSONDecodeError, TypeError):
+                        old_meta = {}
+                tags_changed = any(old_meta.get(k) != metadata.get(k) for k in ("jurisdiction", "deal_stance", "deal_structure"))
+                if tags_changed:
+                    if self.backend == "postgres":
+                        self._execute(connection, "UPDATE lawagent_documents SET metadata = %s::jsonb WHERE id = %s", (json.dumps(metadata), existing["id"]))
+                    else:
+                        self._execute(connection, "UPDATE lawagent_documents SET metadata = %s WHERE id = %s", (json.dumps(metadata), existing["id"]))
+                    connection.commit()
+                    return {
+                        "status": "tags_updated", "document_id": existing["id"], "path": str(path),
+                        "title": path.stem, "category": classification["category"],
+                        "document_type": classification["document_type"], "source_system": source_system,
+                        "chunk_count": 0, "jurisdiction": tags["jurisdiction"],
+                        "deal_stance": tags["deal_stance"], "deal_structure": tags["deal_structure"],
+                    }
                 return {"status": "unchanged", "document_id": existing["id"], "path": str(path)}
             if existing:
                 document_id = existing["id"]
@@ -314,6 +401,9 @@ class CorpusDatabase:
             "source_system": source_system,
             "chunk_count": len(chunks),
             "path": str(path),
+            "jurisdiction": tags["jurisdiction"],
+            "deal_stance": tags["deal_stance"],
+            "deal_structure": tags["deal_structure"],
         }
 
     def ingest_deposit_dirs(self) -> list[dict[str, Any]]:
@@ -405,16 +495,23 @@ class CorpusDatabase:
                 connection,
                 """
                 SELECT d.id, d.title, d.source_path, d.category, d.document_type, d.source_system,
-                       d.checksum, d.created_at, COUNT(c.id) AS chunk_count
+                       d.checksum, d.metadata, d.created_at, COUNT(c.id) AS chunk_count
                 FROM lawagent_documents d
                 LEFT JOIN lawagent_chunks c ON c.document_id = d.id
-                GROUP BY d.id, d.title, d.source_path, d.category, d.document_type, d.source_system, d.checksum, d.created_at
+                GROUP BY d.id, d.title, d.source_path, d.category, d.document_type, d.source_system, d.checksum, d.metadata, d.created_at
                 ORDER BY d.created_at DESC
                 """,
                 (),
             )
-        return [
-            CorpusDocument(
+        results = []
+        for row in rows:
+            meta = row.get("metadata") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            results.append(CorpusDocument(
                 id=int(row["id"]),
                 title=row["title"],
                 source_path=row["source_path"],
@@ -424,9 +521,11 @@ class CorpusDatabase:
                 checksum=row["checksum"],
                 chunk_count=int(row["chunk_count"]),
                 created_at=str(row["created_at"]),
-            )
-            for row in rows
-        ]
+                jurisdiction=meta.get("jurisdiction", ""),
+                deal_stance=meta.get("deal_stance", ""),
+                deal_structure=meta.get("deal_structure", ""),
+            ))
+        return results
 
     def stats(self) -> dict[str, Any]:
         documents = self.list_documents()
@@ -442,6 +541,28 @@ class CorpusDatabase:
             "categories": categories,
             "documents": [doc.__dict__ for doc in documents[:20]],
         }
+
+    def update_document_tags(self, document_id: int, tags: dict[str, str]) -> dict[str, Any]:
+        self.init_schema()
+        with self.connect() as connection:
+            existing = self._fetch_one(connection, "SELECT id, metadata FROM lawagent_documents WHERE id = %s", (document_id,))
+            if not existing:
+                return {"error": "Document not found", "document_id": document_id}
+            meta = existing.get("metadata") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            for key in ("jurisdiction", "deal_stance", "deal_structure"):
+                if key in tags:
+                    meta[key] = tags[key]
+            if self.backend == "postgres":
+                self._execute(connection, "UPDATE lawagent_documents SET metadata = %s::jsonb WHERE id = %s", (json.dumps(meta), document_id))
+            else:
+                self._execute(connection, "UPDATE lawagent_documents SET metadata = %s WHERE id = %s", (json.dumps(meta), document_id))
+            connection.commit()
+        return {"status": "updated", "document_id": document_id, "tags": {k: meta.get(k, "") for k in ("jurisdiction", "deal_stance", "deal_structure")}}
 
     def _execute(self, connection, sql: str, params: tuple[Any, ...]):
         if self.backend == "sqlite":

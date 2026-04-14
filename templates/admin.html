@@ -73,12 +73,50 @@
               <div id="ingestResult" class="result-box"></div>
             </div>
             <div class="admin-card">
-              <h3>Upload training document</h3>
-              <p class="muted">Upload a document directly to the training corpus. It will be classified, chunked, and indexed for retrieval.</p>
+              <h3>Upload training documents</h3>
+              <p class="muted">Upload one or more documents to the training corpus. They will be classified, chunked, tagged, and indexed for retrieval. Tags are auto-detected but you can override them below.</p>
               <label class="file-label">
-                Choose PDF, DOCX, TXT, or MD
-                <input id="adminUpload" type="file" accept=".pdf,.docx,.txt,.md">
+                Choose PDF, DOCX, TXT, or MD (multiple)
+                <input id="adminUpload" type="file" accept=".pdf,.docx,.txt,.md" multiple>
               </label>
+              <div class="tag-overrides">
+                <p class="muted" style="margin:0 0 6px;font-size:.85rem">Optional tag overrides (applied to all files in this batch):</p>
+                <div class="inline-fields">
+                  <label>
+                    Jurisdiction
+                    <select id="uploadJurisdiction">
+                      <option value="">Auto-detect</option>
+                      <option value="Delaware">Delaware</option>
+                      <option value="New York">New York</option>
+                      <option value="California">California</option>
+                      <option value="Texas">Texas</option>
+                      <option value="Nevada">Nevada</option>
+                      <option value="Illinois">Illinois</option>
+                      <option value="United Kingdom">United Kingdom</option>
+                      <option value="Canada">Canada</option>
+                      <option value="Federal/Multi-State">Federal/Multi-State</option>
+                    </select>
+                  </label>
+                  <label>
+                    Stance
+                    <select id="uploadStance">
+                      <option value="">Auto-detect</option>
+                      <option value="pro-buyer">Pro-Buyer</option>
+                      <option value="pro-seller">Pro-Seller</option>
+                      <option value="balanced">Balanced</option>
+                    </select>
+                  </label>
+                  <label>
+                    Structure
+                    <select id="uploadStructure">
+                      <option value="">Auto-detect</option>
+                      <option value="asset purchase">Asset Purchase</option>
+                      <option value="stock purchase">Stock Purchase</option>
+                      <option value="merger">Merger</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
               <div id="uploadResult" class="result-box"></div>
             </div>
           </div>
