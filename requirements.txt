@@ -10,3 +10,14 @@ python-docx
 openpyxl
 tiktoken
 
+langchain
+langchain-chroma
+langchain-community
+langchain-core
+langchain-ollama
+langchain-text-splitters
+langgraph
+openpyxl
+pypdf
+python-docx
+tiktoken
