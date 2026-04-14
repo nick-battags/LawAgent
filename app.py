@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import threading
 import traceback
@@ -226,6 +227,188 @@ def session_upload():
         return jsonify(doc_info)
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def _extract_deal_details(session_id: str) -> dict[str, str]:
+    docs = _get_session_docs(session_id)
+    if not docs:
+        return {}
+
+    full_text = "\n".join(
+        chunk["text"] for doc in docs for chunk in doc.get("chunks", [])
+    )
+    if not full_text.strip():
+        return {}
+
+    details: dict[str, str] = {}
+    text_lower = full_text.lower()
+
+    tx_patterns = [
+        (r"(?:reverse\s+)?triangular\s+merger", "Reverse triangular merger"),
+        (r"stock\s+purchase", "Stock purchase"),
+        (r"asset\s+purchase", "Asset purchase"),
+        (r"merger\s+(?:agreement|transaction)", "Merger"),
+        (r"share\s+exchange", "Share exchange"),
+        (r"tender\s+offer", "Tender offer"),
+    ]
+    for pat, label in tx_patterns:
+        if re.search(pat, text_lower):
+            details["transaction_type"] = label
+            break
+
+    preamble_m = re.search(
+        r'(?:entered\s+into\s+)?(?:by\s+and\s+(?:between|among)\s+)(.{10,400}?)(?:\.\s|\n\n)',
+        full_text, re.IGNORECASE | re.DOTALL)
+    preamble_entities: list[str] = []
+    if preamble_m:
+        raw = preamble_m.group(1)
+        preamble_entities = [
+            e.strip().rstrip(",. ")
+            for e in re.split(r',\s+(?:and\s+)?|\s+and\s+', raw)
+            if re.search(r'(?:Inc|LLC|Corp|Company|Ltd|LP|Holdings)', e, re.IGNORECASE)
+        ]
+
+    party_patterns = [
+        ("buyer_name", [
+            r'(?:buyer|purchaser|parent|acqui(?:rer|ror))[,\s]*(?:a\s+\w+\s+(?:corporation|llc|inc|company))?\s*\("([^"]{3,80})"\)',
+            r'"([^"]{3,80})"\s*\((?:the\s+)?"?(?:buyer|purchaser|parent|acqui(?:rer|ror))"?\)',
+        ]),
+        ("seller_name", [
+            r'(?:seller|target|company)[,\s]*(?:a\s+\w+\s+(?:corporation|llc|inc|company))?\s*\("([^"]{3,80})"\)',
+            r'"([^"]{3,80})"\s*\((?:the\s+)?"?(?:seller|target|company)"?\)',
+        ]),
+        ("merger_sub_name", [
+            r'(?:merger\s+sub(?:sidiary)?|acquisition\s+(?:sub|vehicle))[,\s]*(?:a\s+\w+\s+(?:corporation|llc|inc|company))?\s*\("([^"]{3,80})"\)',
+            r'"([^"]{3,80})"\s*\((?:the\s+)?"?(?:merger\s+sub|acquisition\s+sub)"?\)',
+        ]),
+    ]
+    for field, patterns in party_patterns:
+        for pat in patterns:
+            m = re.search(pat, full_text, re.IGNORECASE)
+            if m:
+                details[field] = m.group(1).strip().rstrip(",. ")
+                break
+
+    if preamble_entities:
+        if "buyer_name" not in details and len(preamble_entities) >= 1:
+            details["buyer_name"] = preamble_entities[0]
+        if "merger_sub_name" not in details and len(preamble_entities) >= 2:
+            mid = preamble_entities[1]
+            if re.search(r'merger\s*sub|acquisition', mid, re.IGNORECASE):
+                details["merger_sub_name"] = mid
+        if "seller_name" not in details:
+            details["seller_name"] = preamble_entities[-1]
+
+    price_patterns = [
+        r'(?:(?:purchase|merger|aggregate)\s+(?:price|consideration)|(?:consideration\s+(?:of|equal\s+to)))\s*(?:(?:is|shall\s+be|of|equal\s+to|equals)\s+)?[\$]?([\$]?[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|MM|M|B))?)',
+        r'\$([\d,]+(?:\.\d+)?(?:\s*(?:million|billion|MM|M|B))?)\s*(?:in\s+cash\s+)?(?:at\s+closing|aggregate|purchase\s+price)',
+    ]
+    for pat in price_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            if not val.startswith("$"):
+                val = "$" + val
+            details["purchase_price"] = val
+            break
+
+    wc_patterns = [
+        r'(?:working\s+capital)\s+(?:adjustment|target|peg|amount)[\s:]*(?:of\s+)?\$?([\d][\d,\.]+(?:\s*(?:million|MM|M))?)',
+        r'(?:working\s+capital)[^.]{0,200}?(?:target|peg)\s+(?:of\s+)?\$?([\d][\d,\.]+)',
+    ]
+    for pat in wc_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            details["working_capital"] = "$" + val if not val.startswith("$") else val
+            break
+    if "working_capital" not in details:
+        m = re.search(r'(?:working\s+capital\s+adjustment)[^.]{5,300}', full_text, re.IGNORECASE)
+        if m:
+            details["working_capital"] = m.group(0).strip()[:200]
+
+    escrow_patterns = [
+        r'(?:escrow|holdback)[^.]{0,250}',
+    ]
+    for pat in escrow_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            details["escrow"] = m.group(0).strip()[:200]
+            break
+
+    indemnity_patterns = [
+        r'(?:indemnif(?:y|ication))\s+cap[^.]{0,250}',
+        r'(?:indemnif(?:y|ication))[^.]{0,120}(?:basket|cap|deductible)[^.]{0,150}',
+    ]
+    for pat in indemnity_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            details["indemnity_cap"] = m.group(0).strip()[:200]
+            break
+
+    survival_patterns = [
+        r'(?:survival|survival\s+period)[^.]{0,250}',
+        r'(?:representations|warranties)\s+(?:shall\s+)?surviv[^.]{0,250}',
+    ]
+    for pat in survival_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            details["survival_period"] = m.group(0).strip()[:200]
+            break
+
+    closing_patterns = [
+        r'(?:closing\s+conditions?|conditions?\s+(?:to|precedent))[^.]{0,300}',
+    ]
+    for pat in closing_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            details["closing_conditions"] = m.group(0).strip()[:250]
+            break
+
+    gov_patterns = [
+        r'(?:governed?\s+by|governing\s+law)[^.]{0,100}(?:laws?\s+of\s+(?:the\s+)?(?:State\s+of\s+)?)([\w\s]+?)(?:\.|,|;|\s+without)',
+        r'(?:laws?\s+of\s+(?:the\s+)?(?:State\s+of\s+)?)([\w]+)\s+(?:shall\s+)?govern',
+    ]
+    for pat in gov_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            details["governing_law"] = m.group(1).strip()
+            break
+
+    business_patterns = [
+        r'(?:target|company|seller)\s+(?:is\s+)?(?:engaged?\s+in|(?:a|the)\s+(?:provider|developer|operator|manufacturer|supplier)\s+of)\s+([^.]{10,200})',
+        r'(?:business\s+of\s+(?:the\s+)?(?:target|company|seller))\s+(?:is|consists?\s+of)\s+([^.]{10,200})',
+    ]
+    for pat in business_patterns:
+        m = re.search(pat, full_text, re.IGNORECASE)
+        if m:
+            details["target_business"] = m.group(1).strip()[:200]
+            break
+
+    special_keywords = [
+        "open.?source", "key.?(?:customer|employee)", "tax.?clearance",
+        "regulatory.?approv", "antitrust", "hsr", "hart.?scott",
+        "environmental", "litigation", "ip.?(?:review|infringement)",
+        "consent", "change.?of.?control", "earn.?out",
+    ]
+    found_special = []
+    for kw in special_keywords:
+        if re.search(kw, text_lower):
+            found_special.append(re.sub(r'[.?]', ' ', kw).strip().title())
+    if found_special:
+        details["special_issues"] = "; ".join(found_special[:6])
+
+    return details
+
+
+@app.post("/api/session/extract-details")
+def session_extract_details():
+    payload = request.get_json(silent=True) or {}
+    session_id = str(payload.get("session_id", ""))
+    if not session_id:
+        return jsonify({"error": "Session ID is required."}), 400
+    details = _extract_deal_details(session_id)
+    return jsonify({"details": details, "fields_found": len(details)})
 
 
 @app.get("/api/edgar/search")

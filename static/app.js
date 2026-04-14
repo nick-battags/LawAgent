@@ -251,16 +251,61 @@ analyzeV2Btn.addEventListener("click", async () => {
 
 async function buildTemplateForm() {
   const data = await getJson("/api/template/questions");
-  templateForm.innerHTML = data.questions
-    .map(
-      (question) => `
+  templateForm.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" id="autofillBtn" class="secondary dark" style="flex:1;min-width:180px">Pre-fill from session context</button>
+      <span id="autofillStatus" class="muted" style="font-size:13px"></span>
+    </div>` +
+    data.questions
+      .map(
+        (question) => `
       <label>
         ${escapeHtml(question.label)}
         <input name="${escapeHtml(question.name)}" placeholder="${escapeHtml(question.placeholder)}">
       </label>`
-    )
-    .join("");
+      )
+      .join("");
   templateForm.insertAdjacentHTML("beforeend", `<button class="primary wide" type="submit">Generate agreement draft</button>`);
+
+  const autofillBtn = document.querySelector("#autofillBtn");
+  const autofillStatus = document.querySelector("#autofillStatus");
+
+  autofillBtn.addEventListener("click", async () => {
+    if (!sessionDocuments.length) {
+      autofillStatus.innerHTML = `<span style="color:var(--amber)">Upload session documents first (Deal context panel above).</span>`;
+      return;
+    }
+    autofillBtn.disabled = true;
+    autofillBtn.textContent = "Extracting deal details...";
+    autofillStatus.textContent = "";
+    try {
+      const result = await getJson("/api/session/extract-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const details = result.details || {};
+      const count = result.fields_found || 0;
+      if (count === 0) {
+        autofillStatus.innerHTML = `<span style="color:var(--amber)">No deal details could be extracted from the uploaded documents. Fill manually.</span>`;
+        return;
+      }
+      for (const [key, value] of Object.entries(details)) {
+        const input = templateForm.querySelector(`input[name="${key}"]`);
+        if (input && value) {
+          input.value = value;
+          input.style.borderColor = "var(--accent)";
+          setTimeout(() => { input.style.borderColor = ""; }, 2000);
+        }
+      }
+      autofillStatus.innerHTML = `<span style="color:var(--green)">${count} field${count !== 1 ? "s" : ""} extracted from session context.</span>`;
+    } catch (err) {
+      autofillStatus.innerHTML = `<span style="color:var(--red)">Extraction failed: ${escapeHtml(err.message)}</span>`;
+    } finally {
+      autofillBtn.disabled = false;
+      autofillBtn.textContent = "Pre-fill from session context";
+    }
+  });
 }
 
 templateForm.addEventListener("submit", async (event) => {
@@ -268,10 +313,11 @@ templateForm.addEventListener("submit", async (event) => {
   const formData = new FormData(templateForm);
   const details = Object.fromEntries(formData.entries());
   draftOutput.textContent = "Generating draft...";
-  const data = await getJson("/api/template/generate", {
+  const endpoint = sessionDocuments.length ? "/api/v2/template/generate" : "/api/template/generate";
+  const data = await getJson(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ details }),
+    body: JSON.stringify({ details, session_id: sessionId }),
   });
   const followUps = data.follow_up_questions.map((item) => `- ${item}`).join("\n");
   const references = data.retrieved_authorities

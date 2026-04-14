@@ -56,8 +56,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 1. **Hero** — CRAG pipeline overview with navigation buttons.
 2. **Session Context** — Upload deal-specific documents for this analysis session only.
 3. **Contract Analyzer** — Paste-in issue spotting (V1 static or V2 database CRAG with session context).
-4. **Template Assistant** — Guided Q&A to fill a draft Agreement and Plan of Merger.
-5. **Knowledge Base** — Public-reference drafting corpus cards.
+4. **Template Assistant** — Guided Q&A to fill a draft Agreement and Plan of Merger. "Pre-fill from session context" button extracts deal details (party names, transaction type, purchase price, etc.) from uploaded session documents via regex and auto-populates form fields. Automatically routes to V2 generation endpoint when session docs are present.
 
 ### Backend Management (`/admin`)
 1. **Dashboard** — Corpus stats (backend type, document count, chunk count, categories), document list.
@@ -77,6 +76,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - `GET /api/retrieve?q=` — V1 knowledge base retrieval
 - `POST /api/v2/analyze` — V2 database CRAG issue spotting (accepts `session_id`)
 - `POST /api/session/upload` — Upload deal-specific doc to session (not persisted to corpus)
+- `POST /api/session/extract-details` — Extract deal details from session docs for template auto-fill
 
 ### Backend (Admin)
 - `GET /admin` — Backend management page
