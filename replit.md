@@ -25,7 +25,8 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - Uses a centralized PostgreSQL corpus database (`scripts/ma_corpus_db.py`).
 - LangChain `RecursiveCharacterTextSplitter` (1400-char chunks, 180 overlap).
 - Automatic document classification into M&A categories.
-- Keyword-based retrieval with relevance grading and query rewriting.
+- Postgres: GIN-indexed `tsvector` full-text search with `ts_rank` scoring and SQL-level `LIMIT`; SQLite: `LIKE`-based keyword filtering fallback.
+- Python-side relevance scoring and grading on the pre-filtered candidate set.
 - Each issue gets corpus support citations from real training documents.
 - Accepts optional `session_context` parameter — session-uploaded chunks are mixed into retrieval results and per-issue topical matching.
 
@@ -83,7 +84,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - `GET /api/v2/corpus/status` — Corpus database stats
 - `POST /api/v2/corpus/ingest-deposits` — Ingest deposited files
 - `POST /api/v2/corpus/upload` — Upload and ingest a file to global corpus
-- `GET /api/v2/retrieve?q=&category=` — V2 corpus retrieval
+- `GET /api/v2/retrieve?q=&category=` — V2 corpus retrieval (admin-gated)
 - `POST /api/v2/template/generate` — V2 template generation
 - `GET /api/edgar/search?q=&max=&start_date=&end_date=` — Search EDGAR filings
 - `POST /api/edgar/ingest` — Search, download, and ingest EDGAR filings

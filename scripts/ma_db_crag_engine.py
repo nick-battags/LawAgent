@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from langchain_core.documents import Document
-
 import logging
+from typing import Any
 
 from scripts.ma_corpus_db import get_db, normalize_ws
 from scripts.ma_crag_engine import SAMPLE_CONTRACT, analyze_contract, generate_agreement, retrieve as static_retrieve
@@ -28,38 +25,37 @@ def build_context(results: list[dict[str, Any]], limit: int = 4200) -> str:
 
 
 def grade_results(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    docs = [
-        Document(
-            page_content=result["text"],
-            metadata={
-                "title": result["title"],
-                "category": result["category"],
-                "score": result["score"],
-                "page": result["page"],
-            },
-        )
-        for result in results
-    ]
     relevant = []
     query_terms = {term for term in query.lower().split() if len(term) > 3}
-    for doc, result in zip(docs, results):
-        text = doc.page_content.lower()
+    for result in results:
+        text = result["text"].lower()
         overlap = sum(1 for term in query_terms if term in text)
         if overlap or result["score"] >= 2:
-            result = dict(result)
-            result["grade"] = "relevant"
-            result["grade_reason"] = f"Matched {max(overlap, result['score'])} query/corpus signals."
-            relevant.append(result)
+            graded = dict(result)
+            graded["grade"] = "relevant"
+            graded["grade_reason"] = f"Matched {max(overlap, result['score'])} query/corpus signals."
+            relevant.append(graded)
     return relevant
 
 
 def corrective_query(original_query: str, contract_text: str) -> str:
     lowered = contract_text.lower()
-    expansions = ["M&A due diligence", "acquisition agreement", "risk allocation"]
-    for phrase in ["indemnification", "escrow", "assignment", "change of control", "closing conditions", "employment", "intellectual property", "asset acquisition", "ancillary agreements"]:
-        if phrase in lowered and phrase not in original_query.lower():
+    query_lower = original_query.lower()
+    expansions = []
+    topic_phrases = [
+        "indemnification", "escrow", "assignment", "change of control",
+        "closing conditions", "employment", "intellectual property",
+        "asset acquisition", "ancillary agreements", "representations",
+        "warranties", "covenants", "termination", "governing law",
+        "working capital", "holdback", "survival", "disclosure schedule",
+        "material adverse", "regulatory", "tax", "environmental",
+    ]
+    for phrase in topic_phrases:
+        if phrase in lowered and phrase not in query_lower:
             expansions.append(phrase)
-    return f"{original_query} {' '.join(expansions)}"
+    if not expansions:
+        expansions = ["M&A due diligence", "acquisition agreement", "risk allocation"]
+    return f"{original_query} {' '.join(expansions[:10])}"
 
 
 def retrieve_from_corpus(query: str, top_k: int = 8) -> list[dict[str, Any]]:

@@ -14,6 +14,8 @@ import secrets as _secrets
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from scripts.ma_corpus_db import get_db, extract_text, classify_document, normalize_ws
 from scripts.ma_crag_engine import (
     SAMPLE_CONTRACT,
@@ -204,6 +206,7 @@ def v2_upload_document():
 
 
 @app.get("/api/v2/retrieve")
+@_require_admin
 def v2_retrieve():
     query = request.args.get("q", "")
     category = request.args.get("category") or None
@@ -249,7 +252,6 @@ def session_upload():
         category = classification["category"]
         doc_type = classification["document_type"]
 
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
         splitter = RecursiveCharacterTextSplitter(chunk_size=1400, chunk_overlap=180)
         chunks = splitter.split_text(full_text)
 

@@ -174,6 +174,17 @@ class CorpusDatabase:
                 )
                 connection.execute("CREATE INDEX IF NOT EXISTS idx_lawagent_chunks_document_id ON lawagent_chunks(document_id)")
                 connection.execute("CREATE INDEX IF NOT EXISTS idx_lawagent_documents_category ON lawagent_documents(category)")
+                connection.execute("""
+                    ALTER TABLE lawagent_chunks ADD COLUMN IF NOT EXISTS keywords_tsv tsvector
+                """)
+                connection.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_lawagent_chunks_keywords_tsv
+                    ON lawagent_chunks USING GIN(keywords_tsv)
+                """)
+                connection.execute("""
+                    UPDATE lawagent_chunks SET keywords_tsv = to_tsvector('english', keywords)
+                    WHERE keywords_tsv IS NULL
+                """)
             else:
                 connection.execute(
                     """
@@ -274,14 +285,24 @@ class CorpusDatabase:
 
             for index, chunk in enumerate(chunks):
                 keywords = " ".join(sorted(tokenize(chunk["text"]))[:120])
-                self._execute(
-                    connection,
-                    """
-                    INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (document_id, index, chunk["page"], chunk["text"], keywords, now_iso()),
-                )
+                if self.backend == "postgres":
+                    self._execute(
+                        connection,
+                        """
+                        INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, keywords_tsv, created_at)
+                        VALUES (%s, %s, %s, %s, %s, to_tsvector('english', %s), %s)
+                        """,
+                        (document_id, index, chunk["page"], chunk["text"], keywords, keywords, now_iso()),
+                    )
+                else:
+                    self._execute(
+                        connection,
+                        """
+                        INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (document_id, index, chunk["page"], chunk["text"], keywords, now_iso()),
+                    )
             connection.commit()
 
         return {
@@ -310,30 +331,45 @@ class CorpusDatabase:
         query_tokens = tokenize(query)
         if not query_tokens:
             return []
-        with self.connect() as connection:
+
+        select_cols = """
+            c.id, c.document_id, c.chunk_index, c.page, c.text, c.keywords,
+            d.title, d.category, d.document_type, d.source_system, d.source_path
+        """
+
+        if self.backend == "postgres":
+            tsquery = " | ".join(sorted(query_tokens)[:20])
+            cat_clause = "AND d.category = %s" if category else ""
+            sql = f"""
+                SELECT {select_cols},
+                       ts_rank(c.keywords_tsv, to_tsquery('english', %s)) AS ts_score
+                FROM lawagent_chunks c
+                JOIN lawagent_documents d ON d.id = c.document_id
+                WHERE c.keywords_tsv @@ to_tsquery('english', %s) {cat_clause}
+                ORDER BY ts_score DESC
+                LIMIT %s
+            """
+            params: tuple = (tsquery, tsquery)
             if category:
-                rows = self._fetch_all(
-                    connection,
-                    """
-                    SELECT c.id, c.document_id, c.chunk_index, c.page, c.text, c.keywords,
-                           d.title, d.category, d.document_type, d.source_system, d.source_path
-                    FROM lawagent_chunks c
-                    JOIN lawagent_documents d ON d.id = c.document_id
-                    WHERE d.category = %s
-                    """,
-                    (category,),
-                )
-            else:
-                rows = self._fetch_all(
-                    connection,
-                    """
-                    SELECT c.id, c.document_id, c.chunk_index, c.page, c.text, c.keywords,
-                           d.title, d.category, d.document_type, d.source_system, d.source_path
-                    FROM lawagent_chunks c
-                    JOIN lawagent_documents d ON d.id = c.document_id
-                    """,
-                    (),
-                )
+                params += (category,)
+            params += (top_k * 3,)
+        else:
+            keyword_terms = sorted(query_tokens)[:20]
+            keyword_clauses = " OR ".join("c.keywords LIKE %s" for _ in keyword_terms)
+            keyword_params = tuple(f"%{term}%" for term in keyword_terms)
+            cat_clause = "AND d.category = %s" if category else ""
+            sql = f"""
+                SELECT {select_cols}
+                FROM lawagent_chunks c
+                JOIN lawagent_documents d ON d.id = c.document_id
+                WHERE ({keyword_clauses}) {cat_clause}
+            """
+            params = keyword_params
+            if category:
+                params += (category,)
+
+        with self.connect() as connection:
+            rows = self._fetch_all(connection, sql, params)
 
         scored = []
         for row in rows:
