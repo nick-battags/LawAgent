@@ -6,7 +6,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 ## Runtime Setup
 - Python runtime: 3.12 via `.replit`
 - Dependencies: `requirements.txt`
-- Replit workflow: `Start application` runs Gunicorn (`--workers=1 --threads=4 --timeout=120 --preload`).
+- Replit workflow: `Start application` runs `gunicorn -c gunicorn.conf.py app:app` (no `--preload` to avoid fork-unsafe C extension issues).
 - The web app binds to `0.0.0.0:5000` for the Replit preview.
 - PostgreSQL database provisioned via `DATABASE_URL` env var; SQLite fallback for local/GitHub replication.
 
