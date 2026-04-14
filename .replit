@@ -4,7 +4,7 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "libiconv", "rustc"]
+packages = ["cargo", "libiconv", "postgresql", "rustc"]
 
 [workflows]
 runButton = "Project"

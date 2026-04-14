@@ -21,6 +21,7 @@
             and generate corrective clauses. Then use the template assistant to produce a first-draft merger agreement.
           </p>
           <div class="hero-actions">
+            <button class="secondary" data-scroll="corpus">V2 corpus</button>
             <button class="primary" data-scroll="analyzer">Analyze a contract</button>
             <button class="secondary" data-scroll="template">Draft from Q&A</button>
           </div>
@@ -28,9 +29,9 @@
         <div class="pipeline-card">
           <h2>CRAG pipeline</h2>
           <ol>
-            <li><strong>Retrieve</strong> M&A clause guidance and public filing references.</li>
-            <li><strong>Grade</strong> pasted text against expected deal coverage.</li>
-            <li><strong>Correct</strong> missing issues with targeted clauses and follow-ups.</li>
+            <li><strong>Retrieve</strong> M&A guidance from the central training database.</li>
+            <li><strong>Grade</strong> retrieved excerpts and pasted text against deal coverage.</li>
+            <li><strong>Correct</strong> weak areas with database-supported clauses and follow-ups.</li>
             <li><strong>Generate</strong> reports and first-draft agreement language.</li>
           </ol>
         </div>
@@ -38,11 +39,45 @@
     </header>
 
     <main>
+      <section id="corpus" class="panel alt">
+        <div class="section-heading">
+          <p class="eyebrow">V2 database-backed version</p>
+          <h2>Central training corpus for deposited M&A documents</h2>
+          <p>
+            Ingest the attached/deposited PDFs and future uploads into a centralized corpus database. The V2 pipeline uses LangChain document chunks,
+            automatic sorting, retrieval grading, query correction, and the same issue-spotting/drafting architecture as the original app.
+          </p>
+        </div>
+        <div class="corpus-grid">
+          <div class="input-card">
+            <h3>Corpus controls</h3>
+            <p class="muted">Use this for the secure local demo corpus. Documents stay in this project and are retrieved only by the local website.</p>
+            <div class="stacked-actions">
+              <button id="ingestDeposits" class="primary">Ingest deposited files</button>
+              <label class="file-label">
+                Upload training document
+                <input id="corpusUpload" type="file" accept=".pdf,.docx,.txt,.md">
+              </label>
+              <button id="refreshCorpus" class="ghost">Refresh corpus status</button>
+            </div>
+            <div id="corpusStatus" class="status-box">Loading corpus status...</div>
+          </div>
+          <div class="output-card">
+            <h3>Corpus retrieval check</h3>
+            <div class="query-row">
+              <input id="corpusQuery" placeholder="Search training corpus, e.g. escrow agreements in private M&A">
+              <button id="corpusSearch" class="ghost">Search</button>
+            </div>
+            <div id="corpusResults" class="mini-results"></div>
+          </div>
+        </div>
+      </section>
+
       <section id="analyzer" class="panel">
         <div class="section-heading">
           <p class="eyebrow">Contract review</p>
           <h2>Paste an M&A contract for issue spotting</h2>
-          <p>Works with merger agreements, stock purchase agreements, asset purchase agreements, LOIs, and term-sheet style drafts.</p>
+          <p>Run the original static demo or the V2 database-backed LangChain CRAG version against merger agreements, stock purchase agreements, asset purchase agreements, LOIs, and term-sheet style drafts.</p>
         </div>
         <div class="workspace">
           <div class="input-card">
@@ -52,11 +87,12 @@
             </div>
             <textarea id="contractText" placeholder="Paste contract text here..."></textarea>
             <button id="analyzeBtn" class="primary wide">Run issue spotting</button>
+            <button id="analyzeV2Btn" class="secondary dark wide">Run V2 database CRAG</button>
           </div>
           <div class="output-card">
             <div id="analysisEmpty" class="empty">
               <h3>Analysis output</h3>
-              <p>Your risk summary, clause map, corrective issues, and retrieved references will appear here.</p>
+              <p>Your risk summary, clause map, corrective issues, corpus support, and retrieved references will appear here.</p>
             </div>
             <div id="analysisResult" class="hidden"></div>
           </div>

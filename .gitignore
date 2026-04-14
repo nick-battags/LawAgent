@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+instance/
+*.sqlite
+*.sqlite3
 
 # Local vector database and test corpus
 chroma_db/*

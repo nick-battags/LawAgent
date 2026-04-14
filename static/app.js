@@ -1,5 +1,6 @@
 const contractText = document.querySelector("#contractText");
 const analyzeBtn = document.querySelector("#analyzeBtn");
+const analyzeV2Btn = document.querySelector("#analyzeV2Btn");
 const loadSample = document.querySelector("#loadSample");
 const clearContract = document.querySelector("#clearContract");
 const analysisEmpty = document.querySelector("#analysisEmpty");
@@ -8,6 +9,13 @@ const templateForm = document.querySelector("#templateForm");
 const draftOutput = document.querySelector("#draftOutput");
 const copyDraft = document.querySelector("#copyDraft");
 const sourceCards = document.querySelector("#sourceCards");
+const corpusStatus = document.querySelector("#corpusStatus");
+const ingestDeposits = document.querySelector("#ingestDeposits");
+const refreshCorpus = document.querySelector("#refreshCorpus");
+const corpusUpload = document.querySelector("#corpusUpload");
+const corpusQuery = document.querySelector("#corpusQuery");
+const corpusSearch = document.querySelector("#corpusSearch");
+const corpusResults = document.querySelector("#corpusResults");
 
 document.querySelectorAll("[data-scroll]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -63,6 +71,20 @@ function renderAnalysis(data) {
           <p><strong>Why it matters:</strong> ${escapeHtml(issue.why_it_matters)}</p>
           <p><strong>Corrective action:</strong> ${escapeHtml(issue.corrective_action)}</p>
           <div class="suggested">${escapeHtml(issue.suggested_clause)}</div>
+          ${
+            issue.corpus_support
+              ? `<p><strong>Corpus support:</strong></p>${issue.corpus_support
+                  .map(
+                    (support) => `
+                    <div class="reference">
+                      <span class="tag">${escapeHtml(support.category.replaceAll("_", " "))}</span>
+                      <p><strong>${escapeHtml(support.title)}</strong> · page ${escapeHtml(support.page)}</p>
+                      <p>${escapeHtml(support.excerpt)}</p>
+                    </div>`
+                  )
+                  .join("")}`
+              : ""
+          }
           <p><a href="${escapeHtml(issue.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(issue.source)}</a></p>
         </article>`
             )
@@ -95,6 +117,26 @@ function renderAnalysis(data) {
       </article>`
       )
       .join("")}
+    ${
+      data.corpus_results
+        ? `<h3>V2 corpus chunks used</h3>${data.corpus_results
+            .map(
+              (item) => `
+              <article class="reference">
+                <span class="tag">${escapeHtml(item.category.replaceAll("_", " "))}</span>
+                <h3>${escapeHtml(item.title)} · page ${escapeHtml(item.page)}</h3>
+                <p>${escapeHtml(item.text.slice(0, 700))}</p>
+                <p><strong>Source:</strong> ${escapeHtml(item.source_system)}</p>
+              </article>`
+            )
+            .join("")}`
+        : ""
+    }
+    ${
+      data.architecture
+        ? `<h3>V2 architecture</h3><div class="issue"><p><strong>Variation:</strong> ${escapeHtml(data.architecture.variation)}</p><p><strong>Database:</strong> ${escapeHtml(data.architecture.database)}</p><p>${data.architecture.security.map(escapeHtml).join("<br>")}</p></div>`
+        : ""
+    }
     <div class="issue medium"><p>${escapeHtml(data.disclaimer)}</p></div>
   `;
   analysisEmpty.classList.add("hidden");
@@ -130,6 +172,109 @@ analyzeBtn.addEventListener("click", async () => {
     analyzeBtn.disabled = false;
     analyzeBtn.textContent = "Run issue spotting";
   }
+});
+
+analyzeV2Btn.addEventListener("click", async () => {
+  analyzeV2Btn.disabled = true;
+  analyzeV2Btn.textContent = "Running V2 CRAG...";
+  try {
+    const data = await getJson("/api/v2/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contract: contractText.value }),
+    });
+    renderAnalysis(data);
+  } catch (error) {
+    analysisEmpty.classList.add("hidden");
+    analysisResult.classList.remove("hidden");
+    analysisResult.innerHTML = `<div class="issue high"><h3>Unable to analyze with V2</h3><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    analyzeV2Btn.disabled = false;
+    analyzeV2Btn.textContent = "Run V2 database CRAG";
+  }
+});
+
+function renderCorpusStatus(data) {
+  const categories = Object.entries(data.categories || {})
+    .map(([name, count]) => `<span class="tag">${escapeHtml(name.replaceAll("_", " "))}: ${count}</span>`)
+    .join(" ");
+  const documents = (data.documents || [])
+    .slice(0, 8)
+    .map(
+      (doc) => `
+      <div class="reference">
+        <span class="tag">${escapeHtml(doc.category.replaceAll("_", " "))}</span>
+        <p><strong>${escapeHtml(doc.title)}</strong></p>
+        <p>${escapeHtml(doc.document_type)} · ${doc.chunk_count} chunks · ${escapeHtml(doc.source_system)}</p>
+      </div>`
+    )
+    .join("");
+  corpusStatus.innerHTML = `
+    <div class="summary-grid">
+      <div class="metric"><span>Backend</span><strong>${escapeHtml(data.backend)}</strong></div>
+      <div class="metric"><span>Docs</span><strong>${data.document_count}</strong></div>
+      <div class="metric"><span>Chunks</span><strong>${data.chunk_count}</strong></div>
+      <div class="metric"><span>Categories</span><strong>${Object.keys(data.categories || {}).length}</strong></div>
+    </div>
+    <p>${categories || "No documents ingested yet."}</p>
+    ${documents}
+  `;
+}
+
+async function refreshCorpusStatus() {
+  corpusStatus.textContent = "Loading corpus status...";
+  const data = await getJson("/api/v2/corpus/status");
+  renderCorpusStatus(data);
+}
+
+ingestDeposits.addEventListener("click", async () => {
+  ingestDeposits.disabled = true;
+  ingestDeposits.textContent = "Ingesting...";
+  try {
+    const data = await getJson("/api/v2/corpus/ingest-deposits", { method: "POST" });
+    renderCorpusStatus(data.status);
+    corpusResults.innerHTML = `<div class="issue"><h3>Ingestion complete</h3><p>${data.results.length} deposited files checked. New or updated documents are now available to V2 CRAG.</p></div>`;
+  } catch (error) {
+    corpusResults.innerHTML = `<div class="issue high"><h3>Ingestion failed</h3><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    ingestDeposits.disabled = false;
+    ingestDeposits.textContent = "Ingest deposited files";
+  }
+});
+
+refreshCorpus.addEventListener("click", refreshCorpusStatus);
+
+corpusUpload.addEventListener("change", async () => {
+  if (!corpusUpload.files.length) return;
+  const formData = new FormData();
+  formData.append("file", corpusUpload.files[0]);
+  corpusResults.innerHTML = `<div class="issue"><p>Uploading and ingesting ${escapeHtml(corpusUpload.files[0].name)}...</p></div>`;
+  const response = await fetch("/api/v2/corpus/upload", { method: "POST", body: formData });
+  const data = await response.json();
+  if (!response.ok) {
+    corpusResults.innerHTML = `<div class="issue high"><h3>Upload failed</h3><p>${escapeHtml(data.error || "Upload failed")}</p></div>`;
+    return;
+  }
+  renderCorpusStatus(data.status);
+  corpusResults.innerHTML = `<div class="issue"><h3>Uploaded and ingested</h3><p>${escapeHtml(data.result.title || data.result.path)} · ${escapeHtml(data.result.category || data.result.status)}</p></div>`;
+});
+
+corpusSearch.addEventListener("click", async () => {
+  const query = corpusQuery.value || "M&A due diligence escrow ancillary agreement";
+  const data = await getJson(`/api/v2/retrieve?q=${encodeURIComponent(query)}`);
+  corpusResults.innerHTML = data.results.length
+    ? data.results
+        .map(
+          (item) => `
+        <article class="reference">
+          <span class="tag">${escapeHtml(item.category.replaceAll("_", " "))}</span>
+          <h3>${escapeHtml(item.title)} · page ${escapeHtml(item.page)}</h3>
+          <p>${escapeHtml(item.text.slice(0, 650))}</p>
+          <p><strong>Matched:</strong> ${item.matched_terms.map(escapeHtml).join(", ")}</p>
+        </article>`
+        )
+        .join("")
+    : `<div class="issue medium"><p>No matching corpus chunks yet. Ingest deposited files first.</p></div>`;
 });
 
 async function buildTemplateForm() {
@@ -189,3 +334,4 @@ async function renderSources() {
 
 buildTemplateForm();
 renderSources();
+refreshCorpusStatus();

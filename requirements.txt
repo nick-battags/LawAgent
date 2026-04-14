@@ -23,3 +23,4 @@ python-docx
 tiktoken
 flask
 gunicorn
+psycopg[binary]

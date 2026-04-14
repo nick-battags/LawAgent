@@ -150,6 +150,12 @@ h3 {
   border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
+.secondary.dark {
+  color: white;
+  background: var(--navy);
+  border: 1px solid var(--navy);
+}
+
 .ghost {
   background: #f2eee6;
   color: var(--navy);
@@ -215,11 +221,62 @@ main {
   gap: 24px;
 }
 
+.corpus-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 24px;
+}
+
 .input-card,
 .output-card,
 .form-card,
 .draft-card {
   padding: 22px;
+}
+
+.muted {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.stacked-actions {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.file-label {
+  border: 1px dashed var(--gold);
+  border-radius: 14px;
+  padding: 14px;
+  color: var(--navy);
+  background: #fffaf0;
+}
+
+.file-label input {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.status-box,
+.mini-results {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fffdf8;
+  padding: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.query-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.query-row input {
+  width: 100%;
 }
 
 .input-toolbar,
