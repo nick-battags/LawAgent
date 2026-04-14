@@ -9,20 +9,12 @@ const templateForm = document.querySelector("#templateForm");
 const draftOutput = document.querySelector("#draftOutput");
 const copyDraft = document.querySelector("#copyDraft");
 const sourceCards = document.querySelector("#sourceCards");
-const corpusStatus = document.querySelector("#corpusStatus");
-const ingestDeposits = document.querySelector("#ingestDeposits");
-const refreshCorpus = document.querySelector("#refreshCorpus");
-const corpusUpload = document.querySelector("#corpusUpload");
-const corpusQuery = document.querySelector("#corpusQuery");
-const corpusSearch = document.querySelector("#corpusSearch");
-const corpusResults = document.querySelector("#corpusResults");
-const edgarQuery = document.querySelector("#edgarQuery");
-const edgarStartDate = document.querySelector("#edgarStartDate");
-const edgarEndDate = document.querySelector("#edgarEndDate");
-const edgarMax = document.querySelector("#edgarMax");
-const edgarSearchBtn = document.querySelector("#edgarSearchBtn");
-const edgarIngestBtn = document.querySelector("#edgarIngestBtn");
-const edgarResults = document.querySelector("#edgarResults");
+const sessionUpload = document.querySelector("#sessionUpload");
+const sessionStatus = document.querySelector("#sessionStatus");
+const sessionDocs = document.querySelector("#sessionDocs");
+
+let sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+let sessionDocuments = [];
 
 document.querySelectorAll("[data-scroll]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -48,6 +40,43 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function updateSessionStatus() {
+  if (!sessionDocuments.length) {
+    sessionStatus.textContent = "No session documents loaded.";
+    sessionDocs.innerHTML = "Upload deal-specific documents to see them listed here. They will be used as context during contract analysis.";
+    return;
+  }
+  sessionStatus.innerHTML = `<strong>${sessionDocuments.length}</strong> document${sessionDocuments.length > 1 ? "s" : ""} loaded for this session.`;
+  sessionDocs.innerHTML = sessionDocuments.map((doc) => `
+    <div style="border-bottom:1px solid var(--line);padding:8px 0">
+      <span class="tag">${escapeHtml(doc.category.replaceAll("_", " "))}</span>
+      <strong> ${escapeHtml(doc.filename)}</strong>
+      <p class="muted" style="margin:4px 0 0">${doc.chunk_count} chunks extracted · ${escapeHtml(doc.document_type)}</p>
+    </div>
+  `).join("");
+}
+
+sessionUpload.addEventListener("change", async () => {
+  if (!sessionUpload.files.length) return;
+  for (const file of sessionUpload.files) {
+    sessionStatus.innerHTML = `Uploading ${escapeHtml(file.name)}...`;
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("session_id", sessionId);
+    try {
+      const response = await fetch("/api/session/upload", { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Upload failed");
+      sessionDocuments.push(data);
+    } catch (err) {
+      sessionStatus.innerHTML = `<span style="color:var(--red)">Error uploading ${escapeHtml(file.name)}: ${escapeHtml(err.message)}</span>`;
+      return;
+    }
+  }
+  updateSessionStatus();
+  sessionUpload.value = "";
+});
+
 function renderAnalysis(data) {
   const parties = data.summary.possible_parties.length
     ? data.summary.possible_parties.map(escapeHtml).join(", ")
@@ -66,6 +95,7 @@ function renderAnalysis(data) {
       <span class="tag">Pipeline</span>
       <p>${data.summary.crag_pipeline.map(escapeHtml).join(" → ")}</p>
     </div>
+    ${sessionDocuments.length ? `<div class="issue"><span class="tag present">Session context</span><p>${sessionDocuments.length} deal-specific document${sessionDocuments.length > 1 ? "s" : ""} included in this analysis.</p></div>` : ""}
     <h3>Corrective issue list</h3>
     ${
       data.issues.length
@@ -188,7 +218,10 @@ analyzeV2Btn.addEventListener("click", async () => {
     const data = await getJson("/api/v2/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contract: contractText.value }),
+      body: JSON.stringify({
+        contract: contractText.value,
+        session_id: sessionId,
+      }),
     });
     renderAnalysis(data);
   } catch (error) {
@@ -199,89 +232,6 @@ analyzeV2Btn.addEventListener("click", async () => {
     analyzeV2Btn.disabled = false;
     analyzeV2Btn.textContent = "Run V2 database CRAG";
   }
-});
-
-function renderCorpusStatus(data) {
-  const categories = Object.entries(data.categories || {})
-    .map(([name, count]) => `<span class="tag">${escapeHtml(name.replaceAll("_", " "))}: ${count}</span>`)
-    .join(" ");
-  const documents = (data.documents || [])
-    .slice(0, 8)
-    .map(
-      (doc) => `
-      <div class="reference">
-        <span class="tag">${escapeHtml(doc.category.replaceAll("_", " "))}</span>
-        <p><strong>${escapeHtml(doc.title)}</strong></p>
-        <p>${escapeHtml(doc.document_type)} · ${doc.chunk_count} chunks · ${escapeHtml(doc.source_system)}</p>
-      </div>`
-    )
-    .join("");
-  corpusStatus.innerHTML = `
-    <div class="summary-grid">
-      <div class="metric"><span>Backend</span><strong>${escapeHtml(data.backend)}</strong></div>
-      <div class="metric"><span>Docs</span><strong>${data.document_count}</strong></div>
-      <div class="metric"><span>Chunks</span><strong>${data.chunk_count}</strong></div>
-      <div class="metric"><span>Categories</span><strong>${Object.keys(data.categories || {}).length}</strong></div>
-    </div>
-    <p>${categories || "No documents ingested yet."}</p>
-    ${documents}
-  `;
-}
-
-async function refreshCorpusStatus() {
-  corpusStatus.textContent = "Loading corpus status...";
-  const data = await getJson("/api/v2/corpus/status");
-  renderCorpusStatus(data);
-}
-
-ingestDeposits.addEventListener("click", async () => {
-  ingestDeposits.disabled = true;
-  ingestDeposits.textContent = "Ingesting...";
-  try {
-    const data = await getJson("/api/v2/corpus/ingest-deposits", { method: "POST" });
-    renderCorpusStatus(data.status);
-    corpusResults.innerHTML = `<div class="issue"><h3>Ingestion complete</h3><p>${data.results.length} deposited files checked. New or updated documents are now available to V2 CRAG.</p></div>`;
-  } catch (error) {
-    corpusResults.innerHTML = `<div class="issue high"><h3>Ingestion failed</h3><p>${escapeHtml(error.message)}</p></div>`;
-  } finally {
-    ingestDeposits.disabled = false;
-    ingestDeposits.textContent = "Ingest deposited files";
-  }
-});
-
-refreshCorpus.addEventListener("click", refreshCorpusStatus);
-
-corpusUpload.addEventListener("change", async () => {
-  if (!corpusUpload.files.length) return;
-  const formData = new FormData();
-  formData.append("file", corpusUpload.files[0]);
-  corpusResults.innerHTML = `<div class="issue"><p>Uploading and ingesting ${escapeHtml(corpusUpload.files[0].name)}...</p></div>`;
-  const response = await fetch("/api/v2/corpus/upload", { method: "POST", body: formData });
-  const data = await response.json();
-  if (!response.ok) {
-    corpusResults.innerHTML = `<div class="issue high"><h3>Upload failed</h3><p>${escapeHtml(data.error || "Upload failed")}</p></div>`;
-    return;
-  }
-  renderCorpusStatus(data.status);
-  corpusResults.innerHTML = `<div class="issue"><h3>Uploaded and ingested</h3><p>${escapeHtml(data.result.title || data.result.path)} · ${escapeHtml(data.result.category || data.result.status)}</p></div>`;
-});
-
-corpusSearch.addEventListener("click", async () => {
-  const query = corpusQuery.value || "M&A due diligence escrow ancillary agreement";
-  const data = await getJson(`/api/v2/retrieve?q=${encodeURIComponent(query)}`);
-  corpusResults.innerHTML = data.results.length
-    ? data.results
-        .map(
-          (item) => `
-        <article class="reference">
-          <span class="tag">${escapeHtml(item.category.replaceAll("_", " "))}</span>
-          <h3>${escapeHtml(item.title)} · page ${escapeHtml(item.page)}</h3>
-          <p>${escapeHtml(item.text.slice(0, 650))}</p>
-          <p><strong>Matched:</strong> ${item.matched_terms.map(escapeHtml).join(", ")}</p>
-        </article>`
-        )
-        .join("")
-    : `<div class="issue medium"><p>No matching corpus chunks yet. Ingest deposited files first.</p></div>`;
 });
 
 async function buildTemplateForm() {
@@ -339,85 +289,5 @@ async function renderSources() {
     .join("");
 }
 
-edgarSearchBtn.addEventListener("click", async () => {
-  edgarSearchBtn.disabled = true;
-  edgarSearchBtn.textContent = "Searching EDGAR...";
-  edgarResults.innerHTML = `<div class="issue"><p>Querying SEC EDGAR full-text search index...</p></div>`;
-  try {
-    const params = new URLSearchParams({
-      q: edgarQuery.value,
-      start_date: edgarStartDate.value,
-      end_date: edgarEndDate.value,
-      max: edgarMax.value,
-    });
-    const data = await getJson(`/api/edgar/search?${params}`);
-    if (!data.results.length) {
-      edgarResults.innerHTML = `<div class="issue medium"><p>No EDGAR filings matched your query. Try a broader search term.</p></div>`;
-      return;
-    }
-    edgarResults.innerHTML = data.results
-      .map(
-        (item) => `
-        <article class="reference">
-          <span class="tag">EDGAR ${escapeHtml(item.file_type || "8-K")}</span>
-          <h3>${escapeHtml(item.entity_name)}</h3>
-          <p><strong>Filed:</strong> ${escapeHtml(item.file_date)} · <strong>Description:</strong> ${escapeHtml(item.file_description || "Exhibit")}</p>
-          ${item.file_url ? `<p><a href="${escapeHtml(item.file_url)}" target="_blank" rel="noreferrer">View on SEC.gov</a></p>` : ""}
-        </article>`
-      )
-      .join("");
-  } catch (error) {
-    edgarResults.innerHTML = `<div class="issue high"><h3>EDGAR search failed</h3><p>${escapeHtml(error.message)}</p></div>`;
-  } finally {
-    edgarSearchBtn.disabled = false;
-    edgarSearchBtn.textContent = "Search EDGAR";
-  }
-});
-
-edgarIngestBtn.addEventListener("click", async () => {
-  edgarIngestBtn.disabled = true;
-  edgarIngestBtn.textContent = "Fetching and ingesting...";
-  edgarResults.innerHTML = `<div class="issue"><p>Searching EDGAR, downloading filing text, and ingesting into the corpus database. This may take a moment...</p></div>`;
-  try {
-    const data = await getJson("/api/edgar/ingest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: edgarQuery.value,
-        start_date: edgarStartDate.value,
-        end_date: edgarEndDate.value,
-        max_filings: parseInt(edgarMax.value, 10),
-      }),
-    });
-    const ingested = data.ingested || [];
-    const succeeded = ingested.filter((item) => item.status === "ingested" || item.status === "updated");
-    const skipped = ingested.filter((item) => item.status !== "ingested" && item.status !== "updated");
-    edgarResults.innerHTML = `
-      <div class="issue">
-        <h3>EDGAR ingestion complete</h3>
-        <p>${data.filings_found} filings found · ${succeeded.length} ingested · ${skipped.length} skipped or unchanged</p>
-      </div>
-      ${succeeded
-        .map(
-          (item) => `
-          <article class="reference">
-            <span class="tag">${escapeHtml((item.category || "general_ma").replaceAll("_", " "))}</span>
-            <h3>${escapeHtml(item.title || item.entity_name || "Filing")}</h3>
-            <p>${item.chunk_count || 0} chunks · ${escapeHtml(item.source_system || "SEC EDGAR")}</p>
-            ${item.edgar_url ? `<p><a href="${escapeHtml(item.edgar_url)}" target="_blank" rel="noreferrer">View on SEC.gov</a></p>` : ""}
-          </article>`
-        )
-        .join("")}
-    `;
-    if (data.corpus_status) renderCorpusStatus(data.corpus_status);
-  } catch (error) {
-    edgarResults.innerHTML = `<div class="issue high"><h3>EDGAR ingestion failed</h3><p>${escapeHtml(error.message)}</p></div>`;
-  } finally {
-    edgarIngestBtn.disabled = false;
-    edgarIngestBtn.textContent = "Search and ingest into corpus";
-  }
-});
-
 buildTemplateForm();
 renderSources();
-refreshCorpusStatus();

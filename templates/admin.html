@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LawAgent | Backend Management</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/admin.css">
+  </head>
+  <body class="admin-body">
+    <header class="admin-header">
+      <nav>
+        <div class="admin-brand">
+          <span class="brand">LawAgent</span>
+          <span class="admin-badge">Backend</span>
+        </div>
+        <a href="/" class="pill nav-link">Demo App</a>
+      </nav>
+    </header>
+
+    <main class="admin-main">
+      <aside class="admin-sidebar">
+        <h3>Pipeline</h3>
+        <button class="sidebar-link active" data-panel="dashboard">Dashboard</button>
+        <button class="sidebar-link" data-panel="corpus">Corpus Management</button>
+        <button class="sidebar-link" data-panel="edgar">SEC EDGAR</button>
+        <button class="sidebar-link" data-panel="documents">Documents</button>
+      </aside>
+
+      <div class="admin-content">
+        <section id="panel-dashboard" class="admin-panel active">
+          <div class="section-heading">
+            <p class="eyebrow">Pipeline overview</p>
+            <h2>Training data dashboard</h2>
+            <p>Monitor the health of your M&A corpus and data ingestion pipeline.</p>
+          </div>
+          <div class="stats-grid" id="dashboardStats">
+            <div class="stat-card">
+              <span class="stat-label">Backend</span>
+              <span class="stat-value" id="statBackend">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Documents</span>
+              <span class="stat-value" id="statDocs">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Chunks</span>
+              <span class="stat-value" id="statChunks">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Categories</span>
+              <span class="stat-value" id="statCategories">--</span>
+            </div>
+          </div>
+          <div class="category-breakdown" id="categoryBreakdown"></div>
+          <div class="doc-list" id="dashboardDocList"></div>
+        </section>
+
+        <section id="panel-corpus" class="admin-panel">
+          <div class="section-heading">
+            <p class="eyebrow">Corpus management</p>
+            <h2>Ingest and manage training documents</h2>
+            <p>Upload M&A documents to the global training corpus. All ingested documents become available to every analysis session in the frontend demo.</p>
+          </div>
+          <div class="admin-grid">
+            <div class="admin-card">
+              <h3>Ingest deposited files</h3>
+              <p class="muted">Scan the deposit directories for new PDFs, DOCX, TXT, and MD files and ingest them into the corpus.</p>
+              <button id="adminIngest" class="primary">Ingest deposited files</button>
+              <div id="ingestResult" class="result-box"></div>
+            </div>
+            <div class="admin-card">
+              <h3>Upload training document</h3>
+              <p class="muted">Upload a document directly to the training corpus. It will be classified, chunked, and indexed for retrieval.</p>
+              <label class="file-label">
+                Choose PDF, DOCX, TXT, or MD
+                <input id="adminUpload" type="file" accept=".pdf,.docx,.txt,.md">
+              </label>
+              <div id="uploadResult" class="result-box"></div>
+            </div>
+          </div>
+          <div class="admin-card wide">
+            <h3>Corpus retrieval test</h3>
+            <p class="muted">Run a test query against the corpus to verify retrieval quality.</p>
+            <div class="query-row">
+              <input id="adminQuery" placeholder="e.g. escrow provisions in asset purchase agreements">
+              <button id="adminSearch" class="primary">Search</button>
+            </div>
+            <div id="adminResults" class="result-box"></div>
+          </div>
+        </section>
+
+        <section id="panel-edgar" class="admin-panel">
+          <div class="section-heading">
+            <p class="eyebrow">SEC EDGAR integration</p>
+            <h2>Fetch and ingest real merger agreements</h2>
+            <p>Search the SEC EDGAR full-text index for M&A exhibits (8-K filings), preview results, and ingest filings into the global training corpus.</p>
+          </div>
+          <div class="admin-card wide">
+            <h3>EDGAR search</h3>
+            <div class="admin-form">
+              <label>
+                Search query
+                <input id="adminEdgarQuery" value='"agreement and plan of merger"'>
+              </label>
+              <div class="inline-fields">
+                <label>
+                  From
+                  <input id="adminEdgarStart" type="date" value="2023-01-01">
+                </label>
+                <label>
+                  To
+                  <input id="adminEdgarEnd" type="date" value="2025-12-31">
+                </label>
+                <label>
+                  Max results
+                  <input id="adminEdgarMax" type="number" value="5" min="1" max="10">
+                </label>
+              </div>
+              <div class="btn-row">
+                <button id="adminEdgarSearch" class="primary">Search EDGAR</button>
+                <button id="adminEdgarIngest" class="secondary dark">Search and ingest into corpus</button>
+              </div>
+            </div>
+            <div id="adminEdgarResults" class="result-box"></div>
+          </div>
+        </section>
+
+        <section id="panel-documents" class="admin-panel">
+          <div class="section-heading">
+            <p class="eyebrow">Document inventory</p>
+            <h2>All documents in the training corpus</h2>
+            <p>Complete list of classified documents with chunk counts and metadata.</p>
+          </div>
+          <div id="documentTable" class="doc-table-container"></div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <p>LawAgent backend management console. Training data pipeline for the M&A Corrective RAG engine.</p>
+    </footer>
+
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

@@ -10,7 +10,10 @@
     <header class="hero">
       <nav>
         <div class="brand">LawAgent</div>
-        <div class="pill">M&A Corrective RAG Demo</div>
+        <div class="nav-right">
+          <a href="/admin" class="pill nav-link">Backend Management</a>
+          <span class="pill">M&A Corrective RAG Demo</span>
+        </div>
       </nav>
       <section class="hero-grid">
         <div>
@@ -18,12 +21,11 @@
           <h1>Issue-spot contracts and draft M&A templates from a guided Q&A.</h1>
           <p class="lede">
             Paste an agreement to identify missing or weak legal provisions, retrieve source-backed drafting guidance,
-            and generate corrective clauses. Then use the template assistant to produce a first-draft merger agreement.
+            and generate corrective clauses. Optionally upload deal-specific context documents for enriched analysis.
           </p>
           <div class="hero-actions">
-            <button class="secondary" data-scroll="corpus">V2 corpus</button>
-            <button class="secondary" data-scroll="edgar">SEC EDGAR</button>
             <button class="primary" data-scroll="analyzer">Analyze a contract</button>
+            <button class="secondary" data-scroll="context">Add deal context</button>
             <button class="secondary" data-scroll="template">Draft from Q&A</button>
           </div>
         </div>
@@ -40,78 +42,30 @@
     </header>
 
     <main>
-      <section id="corpus" class="panel alt">
+      <section id="context" class="panel alt">
         <div class="section-heading">
-          <p class="eyebrow">V2 database-backed version</p>
-          <h2>Central training corpus for deposited M&A documents</h2>
+          <p class="eyebrow">Session context</p>
+          <h2>Add deal-specific documents for this analysis session</h2>
           <p>
-            Ingest the attached/deposited PDFs and future uploads into a centralized corpus database. The V2 pipeline uses LangChain document chunks,
-            automatic sorting, retrieval grading, query correction, and the same issue-spotting/drafting architecture as the original app.
+            Upload documents relevant to this specific deal. They will be used as additional context only during your
+            current session and will not be stored in the global training corpus.
           </p>
         </div>
-        <div class="corpus-grid">
+        <div class="context-grid">
           <div class="input-card">
-            <h3>Corpus controls</h3>
-            <p class="muted">Use this for the secure local demo corpus. Documents stay in this project and are retrieved only by the local website.</p>
+            <h3>Session documents</h3>
+            <p class="muted">These documents enhance your analysis with deal-specific knowledge. They are discarded when you close the page.</p>
             <div class="stacked-actions">
-              <button id="ingestDeposits" class="primary">Ingest deposited files</button>
               <label class="file-label">
-                Upload training document
-                <input id="corpusUpload" type="file" accept=".pdf,.docx,.txt,.md">
+                Upload deal-specific document
+                <input id="sessionUpload" type="file" accept=".pdf,.docx,.txt,.md" multiple>
               </label>
-              <button id="refreshCorpus" class="ghost">Refresh corpus status</button>
             </div>
-            <div id="corpusStatus" class="status-box">Loading corpus status...</div>
+            <div id="sessionStatus" class="status-box">No session documents loaded.</div>
           </div>
           <div class="output-card">
-            <h3>Corpus retrieval check</h3>
-            <div class="query-row">
-              <input id="corpusQuery" placeholder="Search training corpus, e.g. escrow agreements in private M&A">
-              <button id="corpusSearch" class="ghost">Search</button>
-            </div>
-            <div id="corpusResults" class="mini-results"></div>
-          </div>
-        </div>
-      </section>
-
-      <section id="edgar" class="panel">
-        <div class="section-heading">
-          <p class="eyebrow">SEC EDGAR integration</p>
-          <h2>Fetch real merger agreements from public SEC filings</h2>
-          <p>
-            Search the SEC EDGAR full-text search index for M&A exhibits (8-K filings), preview results,
-            and ingest selected filings directly into the training corpus for the V2 CRAG pipeline.
-          </p>
-        </div>
-        <div class="corpus-grid">
-          <div class="input-card">
-            <h3>EDGAR search</h3>
-            <div class="stacked-actions">
-              <label>
-                Search query
-                <input id="edgarQuery" value='"agreement and plan of merger"' placeholder='"agreement and plan of merger"'>
-              </label>
-              <div class="inline-fields">
-                <label>
-                  From
-                  <input id="edgarStartDate" type="date" value="2023-01-01">
-                </label>
-                <label>
-                  To
-                  <input id="edgarEndDate" type="date" value="2025-12-31">
-                </label>
-                <label>
-                  Max
-                  <input id="edgarMax" type="number" value="5" min="1" max="10">
-                </label>
-              </div>
-              <button id="edgarSearchBtn" class="primary">Search EDGAR</button>
-              <button id="edgarIngestBtn" class="secondary dark">Search and ingest into corpus</button>
-            </div>
-          </div>
-          <div class="output-card">
-            <h3>EDGAR results</h3>
-            <div id="edgarResults" class="mini-results">Search results and ingestion status will appear here.</div>
+            <h3>Session document list</h3>
+            <div id="sessionDocs" class="mini-results">Upload deal-specific documents to see them listed here. They will be used as context during contract analysis.</div>
           </div>
         </div>
       </section>
@@ -120,7 +74,7 @@
         <div class="section-heading">
           <p class="eyebrow">Contract review</p>
           <h2>Paste an M&A contract for issue spotting</h2>
-          <p>Run the original static demo or the V2 database-backed LangChain CRAG version against merger agreements, stock purchase agreements, asset purchase agreements, LOIs, and term-sheet style drafts.</p>
+          <p>Run the CRAG engine against merger agreements, stock purchase agreements, asset purchase agreements, LOIs, and term-sheet style drafts. Session context documents are automatically included.</p>
         </div>
         <div class="workspace">
           <div class="input-card">
@@ -166,7 +120,6 @@
           <h2>Public-reference drafting corpus</h2>
           <p>
             The demo uses a curated local M&A knowledge base based on common clauses found in public SEC EDGAR acquisition agreement filings.
-            It references public sources without copying proprietary templates.
           </p>
         </div>
         <div id="sourceCards" class="source-grid"></div>

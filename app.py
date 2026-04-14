@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
+import threading
 import traceback
 from pathlib import Path
+from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from scripts.ma_corpus_db import get_db
+from scripts.ma_corpus_db import get_db, extract_text, classify_document, normalize_ws
 from scripts.ma_crag_engine import (
     SAMPLE_CONTRACT,
     TEMPLATE_QUESTIONS,
@@ -27,6 +30,29 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 UPLOAD_DIR = Path("training_docs_inbox/uploads")
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
+_session_store: dict[str, list[dict[str, Any]]] = {}
+_session_lock = threading.Lock()
+MAX_SESSIONS = 50
+MAX_SESSION_DOCS = 10
+
+
+def _get_session_docs(session_id: str) -> list[dict[str, Any]]:
+    with _session_lock:
+        return list(_session_store.get(session_id, []))
+
+
+def _add_session_doc(session_id: str, doc: dict[str, Any]) -> bool:
+    with _session_lock:
+        if session_id not in _session_store:
+            if len(_session_store) >= MAX_SESSIONS:
+                oldest = next(iter(_session_store))
+                del _session_store[oldest]
+            _session_store[session_id] = []
+        if len(_session_store[session_id]) >= MAX_SESSION_DOCS:
+            return False
+        _session_store[session_id].append(doc)
+        return True
+
 
 @app.errorhandler(Exception)
 def handle_exception(exc):
@@ -44,6 +70,11 @@ def add_dev_headers(response):
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/admin")
+def admin():
+    return render_template("admin.html")
 
 
 @app.get("/health")
@@ -133,10 +164,68 @@ def v2_retrieve():
 def v2_analyze():
     payload = request.get_json(silent=True) or {}
     contract = str(payload.get("contract", ""))
+    session_id = str(payload.get("session_id", ""))
+    session_context = _get_session_docs(session_id) if session_id else []
     try:
-        return jsonify(analyze_contract_v2(contract))
+        return jsonify(analyze_contract_v2(contract, session_context=session_context))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+@app.post("/api/session/upload")
+def session_upload():
+    uploaded = request.files.get("file")
+    session_id = request.form.get("session_id", "")
+    if not session_id:
+        return jsonify({"error": "Session ID is required."}), 400
+    if uploaded is None or not uploaded.filename:
+        return jsonify({"error": "Choose a PDF, DOCX, TXT, or MD file."}), 400
+    filename = secure_filename(uploaded.filename)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        return jsonify({"error": "Only PDF, DOCX, TXT, and MD files are supported."}), 400
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        uploaded.save(tmp)
+        tmp_path = Path(tmp.name)
+
+    try:
+        lc_docs = extract_text(tmp_path)
+        full_text = "\n".join(doc.page_content for doc in lc_docs)
+        if not full_text or len(full_text.strip()) < 50:
+            return jsonify({"error": "Could not extract enough text from the file."}), 400
+
+        classification = classify_document(filename, full_text)
+        category = classification["category"]
+        doc_type = classification["document_type"]
+
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1400, chunk_overlap=180)
+        chunks = splitter.split_text(full_text)
+
+        session_chunks = []
+        for i, chunk in enumerate(chunks):
+            session_chunks.append({
+                "text": normalize_ws(chunk),
+                "title": filename,
+                "category": category,
+                "page": i + 1,
+                "source_system": "session_upload",
+                "score": 0,
+            })
+
+        doc_info = {
+            "filename": filename,
+            "category": category,
+            "document_type": doc_type,
+            "chunk_count": len(session_chunks),
+            "chunks": session_chunks,
+        }
+        if not _add_session_doc(session_id, doc_info):
+            return jsonify({"error": f"Session document limit reached ({MAX_SESSION_DOCS} max). Remove documents or start a new session."}), 400
+        return jsonify(doc_info)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 @app.get("/api/edgar/search")

@@ -76,32 +76,49 @@ def retrieve_from_corpus(query: str, top_k: int = 8) -> list[dict[str, Any]]:
         return []
 
 
-def analyze_contract_v2(contract_text: str) -> dict[str, Any]:
+def analyze_contract_v2(contract_text: str, session_context: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     base = analyze_contract(contract_text or SAMPLE_CONTRACT)
     query = corrective_query(
         "contract issue spotting missing clauses corrective drafting guidance",
         contract_text or SAMPLE_CONTRACT,
     )
     corpus_results = retrieve_from_corpus(query, top_k=10)
-    context = build_context(corpus_results)
+
+    session_chunks: list[dict[str, Any]] = []
+    if session_context:
+        for doc in session_context:
+            session_chunks.extend(doc.get("chunks", []))
+
+    combined_results = corpus_results + session_chunks
+    context = build_context(combined_results)
 
     for issue in base["issues"]:
         topic_query = f"{issue['title']} {issue['why_it_matters']} {issue['corrective_action']}"
         topical = retrieve_from_corpus(topic_query, top_k=2)
+
+        if session_chunks:
+            topic_lower = topic_query.lower()
+            topic_terms = {t for t in topic_lower.split() if len(t) > 3}
+            for chunk in session_chunks:
+                chunk_text = chunk.get("text", "").lower()
+                if any(term in chunk_text for term in topic_terms):
+                    topical.append(chunk)
+
         if topical:
             issue["corpus_support"] = [
                 {
-                    "title": item["title"],
-                    "category": item["category"],
-                    "source_system": item["source_system"],
-                    "page": item["page"],
-                    "excerpt": normalize_ws(item["text"])[:520],
+                    "title": item.get("title", ""),
+                    "category": item.get("category", ""),
+                    "source_system": item.get("source_system", "session_upload"),
+                    "page": item.get("page", ""),
+                    "excerpt": normalize_ws(item.get("text", ""))[:520],
                 }
                 for item in topical
             ]
 
     base["summary"]["version"] = "V2 database-backed LangChain CRAG"
-    base["summary"]["corpus_chunks_used"] = len(corpus_results)
+    base["summary"]["corpus_chunks_used"] = len(combined_results)
+    base["summary"]["session_chunks_used"] = len(session_chunks)
     base["summary"]["crag_pipeline"] = [
         "Deposit and classify user-provided training documents in the central corpus database.",
         "Split documents into LangChain Document chunks for retrieval.",
@@ -109,7 +126,7 @@ def analyze_contract_v2(contract_text: str) -> dict[str, Any]:
         "Grade retrieved excerpts for relevance and rewrite the query when retrieval is weak.",
         "Correct contract issues using the original checklist plus retrieved corpus support.",
     ]
-    base["corpus_results"] = corpus_results
+    base["corpus_results"] = combined_results
     base["corpus_context_preview"] = context[:1800]
     base["architecture"] = {
         "variation": "v2_corpus_crag",
