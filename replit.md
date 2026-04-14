@@ -6,9 +6,8 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 ## Runtime Setup
 - Python runtime: 3.12 via `.replit`
 - Dependencies: `requirements.txt`
-- Replit workflow: `Start application` runs `python app.py`
+- Replit workflow: `Start application` runs Gunicorn (`--workers=1 --threads=4 --timeout=120 --preload`).
 - The web app binds to `0.0.0.0:5000` for the Replit preview.
-- Production publish command is configured to run the Flask app with Gunicorn.
 - PostgreSQL database provisioned via `DATABASE_URL` env var; SQLite fallback for local/GitHub replication.
 
 ## Architecture
@@ -31,6 +30,8 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - Supports configurable queries, date ranges, and filing counts.
 
 ### Corpus Database (`scripts/ma_corpus_db.py`)
+- Thread-safe singleton via `get_db()` — all modules share one `CorpusDatabase` instance per process.
+- Schema initialization is cached with double-checked locking (`threading.Lock`).
 - Dual-backend: PostgreSQL (via `DATABASE_URL`) or SQLite fallback.
 - Tables: `lawagent_documents` and `lawagent_chunks`.
 - Document extraction: PDF (pypdf), DOCX (python-docx), TXT, MD.

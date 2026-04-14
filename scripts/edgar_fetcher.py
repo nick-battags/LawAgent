@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import requests
 
-from scripts.ma_corpus_db import CorpusDatabase
+from scripts.ma_corpus_db import get_db
 
 ROOT = Path(__file__).resolve().parents[1]
 EDGAR_DOWNLOAD_DIR = ROOT / "training_docs_inbox" / "edgar"
@@ -135,8 +135,7 @@ def download_and_ingest(
     file_path = EDGAR_DOWNLOAD_DIR / f"{safe_name}.txt"
     file_path.write_text(text, encoding="utf-8")
 
-    db = CorpusDatabase()
-    result = db.upsert_document(file_path)
+    result = get_db().upsert_document(file_path)
     result["edgar_url"] = file_url
     result["entity_name"] = entity_name
     return result
@@ -181,5 +180,5 @@ def search_and_ingest(
         "status": "complete",
         "filings_found": len(filings),
         "ingested": ingested,
-        "corpus_status": CorpusDatabase().stats(),
+        "corpus_status": get_db().stats(),
     }

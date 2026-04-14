@@ -6,8 +6,12 @@ from typing import Any
 
 from langchain_core.documents import Document
 
-from scripts.ma_corpus_db import CorpusDatabase, normalize_ws
+import logging
+
+from scripts.ma_corpus_db import get_db, normalize_ws
 from scripts.ma_crag_engine import SAMPLE_CONTRACT, analyze_contract, generate_agreement, retrieve as static_retrieve
+
+logger = logging.getLogger(__name__)
 
 
 def build_context(results: list[dict[str, Any]], limit: int = 4200) -> str:
@@ -59,13 +63,17 @@ def corrective_query(original_query: str, contract_text: str) -> str:
 
 
 def retrieve_from_corpus(query: str, top_k: int = 8) -> list[dict[str, Any]]:
-    db = CorpusDatabase()
-    initial = db.retrieve(query, top_k=top_k)
-    graded = grade_results(query, initial)
-    if graded:
-        return graded
-    rewritten = f"{query} merger acquisition due diligence checklist representations warranties indemnification consents ancillary"
-    return grade_results(rewritten, db.retrieve(rewritten, top_k=top_k))
+    try:
+        db = get_db()
+        initial = db.retrieve(query, top_k=top_k)
+        graded = grade_results(query, initial)
+        if graded:
+            return graded
+        rewritten = f"{query} merger acquisition due diligence checklist representations warranties indemnification consents ancillary"
+        return grade_results(rewritten, db.retrieve(rewritten, top_k=top_k))
+    except Exception:
+        logger.exception("retrieve_from_corpus failed for query: %s", query[:200])
+        return []
 
 
 def analyze_contract_v2(contract_text: str) -> dict[str, Any]:
@@ -127,10 +135,8 @@ def generate_agreement_v2(details: dict[str, str]) -> dict[str, Any]:
 
 
 def corpus_status() -> dict[str, Any]:
-    db = CorpusDatabase()
-    return db.stats()
+    return get_db().stats()
 
 
 def ingest_deposited_documents() -> list[dict[str, Any]]:
-    db = CorpusDatabase()
-    return db.ingest_deposit_dirs()
+    return get_db().ingest_deposit_dirs()

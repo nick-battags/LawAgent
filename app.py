@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from scripts.ma_corpus_db import CorpusDatabase
+from scripts.ma_corpus_db import get_db
 from scripts.ma_crag_engine import (
     SAMPLE_CONTRACT,
     TEMPLATE_QUESTIONS,
@@ -26,15 +26,6 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 UPLOAD_DIR = Path("training_docs_inbox/uploads")
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
-
-_corpus_db: CorpusDatabase | None = None
-
-
-def get_corpus_db() -> CorpusDatabase:
-    global _corpus_db
-    if _corpus_db is None:
-        _corpus_db = CorpusDatabase()
-    return _corpus_db
 
 
 @app.errorhandler(Exception)
@@ -103,7 +94,7 @@ def retrieve_api():
 @app.get("/api/v2/corpus/status")
 def v2_corpus_status():
     try:
-        return jsonify(get_corpus_db().stats())
+        return jsonify(get_db().stats())
     except Exception as exc:
         logger.warning("Corpus status failed: %s", exc)
         return jsonify({"backend": "unavailable", "document_count": 0, "chunk_count": 0, "categories": {}, "documents": []})
@@ -112,7 +103,7 @@ def v2_corpus_status():
 @app.post("/api/v2/corpus/ingest-deposits")
 def v2_ingest_deposits():
     results = ingest_deposited_documents()
-    return jsonify({"results": results, "status": get_corpus_db().stats()})
+    return jsonify({"results": results, "status": get_db().stats()})
 
 
 @app.post("/api/v2/corpus/upload")
@@ -127,15 +118,15 @@ def v2_upload_document():
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     target = UPLOAD_DIR / filename
     uploaded.save(target)
-    result = get_corpus_db().upsert_document(target)
-    return jsonify({"result": result, "status": get_corpus_db().stats()})
+    result = get_db().upsert_document(target)
+    return jsonify({"result": result, "status": get_db().stats()})
 
 
 @app.get("/api/v2/retrieve")
 def v2_retrieve():
     query = request.args.get("q", "")
     category = request.args.get("category") or None
-    return jsonify({"results": get_corpus_db().retrieve(query, top_k=10, category=category)})
+    return jsonify({"results": get_db().retrieve(query, top_k=10, category=category)})
 
 
 @app.post("/api/v2/analyze")

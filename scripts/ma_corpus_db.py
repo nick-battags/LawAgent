@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from docx import Document as DocxDocument
 from langchain_core.documents import Document
@@ -110,6 +114,9 @@ def tokenize(text: str) -> set[str]:
 
 
 class CorpusDatabase:
+    _schema_initialized = False
+    _schema_lock = threading.Lock()
+
     def __init__(self) -> None:
         self.database_url = os.environ.get("DATABASE_URL")
         self.sqlite_path = Path(os.environ.get("LAWAGENT_SQLITE_PATH", DEFAULT_SQLITE_PATH))
@@ -127,6 +134,14 @@ class CorpusDatabase:
         return connection
 
     def init_schema(self) -> None:
+        if CorpusDatabase._schema_initialized:
+            return
+        with CorpusDatabase._schema_lock:
+            if CorpusDatabase._schema_initialized:
+                return
+            self._create_tables()
+
+    def _create_tables(self) -> None:
         with self.connect() as connection:
             if self.backend == "postgres":
                 connection.execute(
@@ -190,6 +205,7 @@ class CorpusDatabase:
                     """
                 )
             connection.commit()
+        CorpusDatabase._schema_initialized = True
 
     def upsert_document(self, path: Path) -> dict[str, Any]:
         self.init_schema()
@@ -437,3 +453,16 @@ class CorpusDatabase:
             (title, source_path, category, document_type, source_system, checksum, json.dumps(metadata), now_iso()),
         )
         return int(cursor.lastrowid)
+
+
+_shared_db: CorpusDatabase | None = None
+_db_lock = threading.Lock()
+
+
+def get_db() -> CorpusDatabase:
+    global _shared_db
+    if _shared_db is None:
+        with _db_lock:
+            if _shared_db is None:
+                _shared_db = CorpusDatabase()
+    return _shared_db
