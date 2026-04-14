@@ -9,7 +9,9 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, jsonify, render_template, request
+import secrets as _secrets
+
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
 from scripts.ma_corpus_db import get_db, extract_text, classify_document, normalize_ws
@@ -28,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or _secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+if os.environ.get("NODE_ENV") == "production":
+    app.config["SESSION_COOKIE_SECURE"] = True
+ADMIN_PIN = os.environ.get("ADMIN_PIN", "")
 UPLOAD_DIR = Path("training_docs_inbox/uploads")
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
@@ -73,9 +81,47 @@ def index():
     return render_template("index.html")
 
 
+def _admin_authed() -> bool:
+    if not ADMIN_PIN:
+        return True
+    return session.get("admin_authed") is True
+
+
+def _require_admin(f):
+    from functools import wraps
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _admin_authed():
+            return jsonify({"error": "Admin authentication required."}), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+
 @app.get("/admin")
 def admin():
+    if not _admin_authed():
+        return redirect(url_for("admin_login"))
     return render_template("admin.html")
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if not ADMIN_PIN:
+        return redirect(url_for("admin"))
+    error = ""
+    if request.method == "POST":
+        pin = request.form.get("pin", "")
+        if _secrets.compare_digest(pin, ADMIN_PIN):
+            session["admin_authed"] = True
+            return redirect(url_for("admin"))
+        error = "Incorrect PIN. Try again."
+    return render_template("admin_login.html", error=error)
+
+
+@app.get("/admin/logout")
+def admin_logout():
+    session.pop("admin_authed", None)
+    return redirect(url_for("admin_login"))
 
 
 @app.get("/health")
@@ -124,6 +170,7 @@ def retrieve_api():
 
 
 @app.get("/api/v2/corpus/status")
+@_require_admin
 def v2_corpus_status():
     try:
         return jsonify(get_db().stats())
@@ -133,12 +180,14 @@ def v2_corpus_status():
 
 
 @app.post("/api/v2/corpus/ingest-deposits")
+@_require_admin
 def v2_ingest_deposits():
     results = ingest_deposited_documents()
     return jsonify({"results": results, "status": get_db().stats()})
 
 
 @app.post("/api/v2/corpus/upload")
+@_require_admin
 def v2_upload_document():
     uploaded = request.files.get("file")
     if uploaded is None or not uploaded.filename:
@@ -412,6 +461,7 @@ def session_extract_details():
 
 
 @app.get("/api/edgar/search")
+@_require_admin
 def edgar_search():
     query = request.args.get("q", '"agreement and plan of merger"')
     try:
@@ -427,6 +477,7 @@ def edgar_search():
 
 
 @app.post("/api/edgar/ingest")
+@_require_admin
 def edgar_ingest():
     payload = request.get_json(silent=True) or {}
     query = str(payload.get("query", '"agreement and plan of merger"'))

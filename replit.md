@@ -109,6 +109,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - `training_docs_inbox/edgar/` — EDGAR download target
 
 ## Security
+- **Admin PIN protection**: The `/admin` page and all admin API routes (`/api/v2/corpus/*`, `/api/edgar/*`) require PIN authentication via `ADMIN_PIN` env secret. Uses Flask sessions with `secrets.compare_digest` for timing-safe comparison. Login at `/admin/login`, logout at `/admin/logout`.
 - No third-party AI API required for the demo path.
 - Uploaded documents stay in the project database/local filesystem.
 - Only text extracted from user-deposited documents is retrieved into answers.
