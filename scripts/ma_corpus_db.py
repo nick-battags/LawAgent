@@ -92,11 +92,15 @@ def classify_document(title: str, text: str) -> dict[str, str]:
     return {"category": "general_ma", "document_type": "Training Document"}
 
 
-def detect_source_system(text: str) -> str:
+def detect_source_system(text: str, path: Path | None = None) -> str:
     lower = text[:3000].lower()
     if "lexisnexis" in lower or "practical guidance" in lower:
         return "LexisNexis Practical Guidance user-provided export"
-    if "sec.gov" in lower or "edgar" in lower:
+    if "sec.gov" in lower or "edgar" in lower or "securities and exchange commission" in lower:
+        return "SEC EDGAR public filing"
+    if path and "edgar" in str(path).lower():
+        return "SEC EDGAR public filing"
+    if "securities exchange act" in lower or "form 8-k" in lower or "form 10-k" in lower:
         return "SEC EDGAR public filing"
     return "User-provided local document"
 
@@ -200,7 +204,7 @@ class CorpusDatabase:
             return {"status": "skipped", "reason": "no_text_extracted", "path": str(path)}
 
         classification = classify_document(path.stem, full_text)
-        source_system = detect_source_system(full_text)
+        source_system = detect_source_system(full_text, path)
         metadata = {
             "original_filename": path.name,
             "extension": path.suffix.lower(),
@@ -390,6 +394,7 @@ class CorpusDatabase:
     def _execute(self, connection, sql: str, params: tuple[Any, ...]):
         if self.backend == "sqlite":
             sql = sql.replace("%s", "?").replace("JSONB", "TEXT")
+            sql = re.sub(r"::\w+", "", sql)
         return connection.execute(sql, params)
 
     def _fetch_one(self, connection, sql: str, params: tuple[Any, ...]):

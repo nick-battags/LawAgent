@@ -22,6 +22,7 @@
           </p>
           <div class="hero-actions">
             <button class="secondary" data-scroll="corpus">V2 corpus</button>
+            <button class="secondary" data-scroll="edgar">SEC EDGAR</button>
             <button class="primary" data-scroll="analyzer">Analyze a contract</button>
             <button class="secondary" data-scroll="template">Draft from Q&A</button>
           </div>
@@ -69,6 +70,48 @@
               <button id="corpusSearch" class="ghost">Search</button>
             </div>
             <div id="corpusResults" class="mini-results"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="edgar" class="panel">
+        <div class="section-heading">
+          <p class="eyebrow">SEC EDGAR integration</p>
+          <h2>Fetch real merger agreements from public SEC filings</h2>
+          <p>
+            Search the SEC EDGAR full-text search index for M&A exhibits (8-K filings), preview results,
+            and ingest selected filings directly into the training corpus for the V2 CRAG pipeline.
+          </p>
+        </div>
+        <div class="corpus-grid">
+          <div class="input-card">
+            <h3>EDGAR search</h3>
+            <div class="stacked-actions">
+              <label>
+                Search query
+                <input id="edgarQuery" value='"agreement and plan of merger"' placeholder='"agreement and plan of merger"'>
+              </label>
+              <div class="inline-fields">
+                <label>
+                  From
+                  <input id="edgarStartDate" type="date" value="2023-01-01">
+                </label>
+                <label>
+                  To
+                  <input id="edgarEndDate" type="date" value="2025-12-31">
+                </label>
+                <label>
+                  Max
+                  <input id="edgarMax" type="number" value="5" min="1" max="10">
+                </label>
+              </div>
+              <button id="edgarSearchBtn" class="primary">Search EDGAR</button>
+              <button id="edgarIngestBtn" class="secondary dark">Search and ingest into corpus</button>
+            </div>
+          </div>
+          <div class="output-card">
+            <h3>EDGAR results</h3>
+            <div id="edgarResults" class="mini-results">Search results and ingestion status will appear here.</div>
           </div>
         </div>
       </section>

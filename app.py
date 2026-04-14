@@ -15,6 +15,7 @@ from scripts.ma_crag_engine import (
     retrieve,
 )
 from scripts.ma_db_crag_engine import analyze_contract_v2, generate_agreement_v2, ingest_deposited_documents
+from scripts.edgar_fetcher import search_edgar_filings, search_and_ingest
 
 
 app = Flask(__name__)
@@ -122,6 +123,37 @@ def v2_analyze():
         return jsonify(analyze_contract_v2(contract))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+@app.get("/api/edgar/search")
+def edgar_search():
+    query = request.args.get("q", '"agreement and plan of merger"')
+    try:
+        max_results = min(max(int(request.args.get("max", "10")), 1), 20)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid max parameter."}), 400
+    start_date = request.args.get("start_date", "2022-01-01")
+    end_date = request.args.get("end_date", "2025-12-31")
+    results = search_edgar_filings(query=query, start_date=start_date, end_date=end_date, max_results=max_results)
+    if results and "error" in results[0]:
+        return jsonify({"error": results[0]["error"], "results": [], "query": query}), 502
+    return jsonify({"results": results, "query": query})
+
+
+@app.post("/api/edgar/ingest")
+def edgar_ingest():
+    payload = request.get_json(silent=True) or {}
+    query = str(payload.get("query", '"agreement and plan of merger"'))
+    try:
+        max_filings = min(max(int(payload.get("max_filings", 5)), 1), 10)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid max_filings parameter."}), 400
+    start_date = str(payload.get("start_date", "2022-01-01"))
+    end_date = str(payload.get("end_date", "2025-12-31"))
+    result = search_and_ingest(query=query, max_filings=max_filings, start_date=start_date, end_date=end_date)
+    if result.get("status") == "error":
+        return jsonify(result), 502
+    return jsonify(result)
 
 
 @app.post("/api/v2/template/generate")

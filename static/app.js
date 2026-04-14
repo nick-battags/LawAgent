@@ -16,6 +16,13 @@ const corpusUpload = document.querySelector("#corpusUpload");
 const corpusQuery = document.querySelector("#corpusQuery");
 const corpusSearch = document.querySelector("#corpusSearch");
 const corpusResults = document.querySelector("#corpusResults");
+const edgarQuery = document.querySelector("#edgarQuery");
+const edgarStartDate = document.querySelector("#edgarStartDate");
+const edgarEndDate = document.querySelector("#edgarEndDate");
+const edgarMax = document.querySelector("#edgarMax");
+const edgarSearchBtn = document.querySelector("#edgarSearchBtn");
+const edgarIngestBtn = document.querySelector("#edgarIngestBtn");
+const edgarResults = document.querySelector("#edgarResults");
 
 document.querySelectorAll("[data-scroll]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -331,6 +338,85 @@ async function renderSources() {
     )
     .join("");
 }
+
+edgarSearchBtn.addEventListener("click", async () => {
+  edgarSearchBtn.disabled = true;
+  edgarSearchBtn.textContent = "Searching EDGAR...";
+  edgarResults.innerHTML = `<div class="issue"><p>Querying SEC EDGAR full-text search index...</p></div>`;
+  try {
+    const params = new URLSearchParams({
+      q: edgarQuery.value,
+      start_date: edgarStartDate.value,
+      end_date: edgarEndDate.value,
+      max: edgarMax.value,
+    });
+    const data = await getJson(`/api/edgar/search?${params}`);
+    if (!data.results.length) {
+      edgarResults.innerHTML = `<div class="issue medium"><p>No EDGAR filings matched your query. Try a broader search term.</p></div>`;
+      return;
+    }
+    edgarResults.innerHTML = data.results
+      .map(
+        (item) => `
+        <article class="reference">
+          <span class="tag">EDGAR ${escapeHtml(item.file_type || "8-K")}</span>
+          <h3>${escapeHtml(item.entity_name)}</h3>
+          <p><strong>Filed:</strong> ${escapeHtml(item.file_date)} · <strong>Description:</strong> ${escapeHtml(item.file_description || "Exhibit")}</p>
+          ${item.file_url ? `<p><a href="${escapeHtml(item.file_url)}" target="_blank" rel="noreferrer">View on SEC.gov</a></p>` : ""}
+        </article>`
+      )
+      .join("");
+  } catch (error) {
+    edgarResults.innerHTML = `<div class="issue high"><h3>EDGAR search failed</h3><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    edgarSearchBtn.disabled = false;
+    edgarSearchBtn.textContent = "Search EDGAR";
+  }
+});
+
+edgarIngestBtn.addEventListener("click", async () => {
+  edgarIngestBtn.disabled = true;
+  edgarIngestBtn.textContent = "Fetching and ingesting...";
+  edgarResults.innerHTML = `<div class="issue"><p>Searching EDGAR, downloading filing text, and ingesting into the corpus database. This may take a moment...</p></div>`;
+  try {
+    const data = await getJson("/api/edgar/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: edgarQuery.value,
+        start_date: edgarStartDate.value,
+        end_date: edgarEndDate.value,
+        max_filings: parseInt(edgarMax.value, 10),
+      }),
+    });
+    const ingested = data.ingested || [];
+    const succeeded = ingested.filter((item) => item.status === "ingested" || item.status === "updated");
+    const skipped = ingested.filter((item) => item.status !== "ingested" && item.status !== "updated");
+    edgarResults.innerHTML = `
+      <div class="issue">
+        <h3>EDGAR ingestion complete</h3>
+        <p>${data.filings_found} filings found · ${succeeded.length} ingested · ${skipped.length} skipped or unchanged</p>
+      </div>
+      ${succeeded
+        .map(
+          (item) => `
+          <article class="reference">
+            <span class="tag">${escapeHtml((item.category || "general_ma").replaceAll("_", " "))}</span>
+            <h3>${escapeHtml(item.title || item.entity_name || "Filing")}</h3>
+            <p>${item.chunk_count || 0} chunks · ${escapeHtml(item.source_system || "SEC EDGAR")}</p>
+            ${item.edgar_url ? `<p><a href="${escapeHtml(item.edgar_url)}" target="_blank" rel="noreferrer">View on SEC.gov</a></p>` : ""}
+          </article>`
+        )
+        .join("")}
+    `;
+    if (data.corpus_status) renderCorpusStatus(data.corpus_status);
+  } catch (error) {
+    edgarResults.innerHTML = `<div class="issue high"><h3>EDGAR ingestion failed</h3><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    edgarIngestBtn.disabled = false;
+    edgarIngestBtn.textContent = "Search and ingest into corpus";
+  }
+});
 
 buildTemplateForm();
 renderSources();
