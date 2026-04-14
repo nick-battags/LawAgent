@@ -1,11 +1,12 @@
 .admin-body {
-  background: #f0ede6;
+  background: var(--bg);
 }
 
 .admin-header {
-  background: var(--navy);
+  background: #0d0f16;
   color: white;
   padding: 16px clamp(20px, 5vw, 72px);
+  border-bottom: 1px solid var(--line);
 }
 
 .admin-header nav {
@@ -19,8 +20,8 @@
 }
 
 .admin-badge {
-  background: rgba(201, 151, 47, 0.25);
-  color: var(--gold);
+  background: var(--accent-dim);
+  color: var(--accent);
   padding: 4px 12px;
   border-radius: 8px;
   font-size: 12px;
@@ -30,10 +31,15 @@
 }
 
 .nav-link {
-  color: #efe7d5;
+  color: #94a3b8;
   text-decoration: none;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 14px;
+  transition: color 0.15s;
+}
+
+.nav-link:hover {
+  color: white;
 }
 
 .admin-main {
@@ -68,19 +74,20 @@
   border-radius: 10px;
   font-weight: 700;
   font-size: 14px;
-  color: var(--navy);
+  color: var(--muted);
   background: transparent;
   margin-bottom: 4px;
-  transition: background 0.15s;
+  transition: all 0.15s;
 }
 
 .sidebar-link:hover {
-  background: rgba(20, 33, 61, 0.07);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
 }
 
 .sidebar-link.active {
-  background: var(--navy);
-  color: white;
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
 .admin-panel {
@@ -120,8 +127,8 @@
   margin-top: 8px;
   font-size: 28px;
   font-weight: 800;
-  color: var(--navy);
-  font-family: Georgia, serif;
+  color: #f0f2f8;
+  font-family: Inter, system-ui, sans-serif;
 }
 
 .category-breakdown {
@@ -165,7 +172,7 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
-  background: #fffdf8;
+  background: var(--bg-raised);
   color: var(--muted);
   line-height: 1.55;
   min-height: 40px;
@@ -214,7 +221,7 @@
 }
 
 .doc-table tr:hover td {
-  background: #fffaf0;
+  background: rgba(59, 130, 246, 0.04);
 }
 
 @media (max-width: 900px) {
