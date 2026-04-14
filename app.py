@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import os
+import traceback
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -17,11 +19,28 @@ from scripts.ma_crag_engine import (
 from scripts.ma_db_crag_engine import analyze_contract_v2, generate_agreement_v2, ingest_deposited_documents
 from scripts.edgar_fetcher import search_edgar_filings, search_and_ingest
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 UPLOAD_DIR = Path("training_docs_inbox/uploads")
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+
+_corpus_db: CorpusDatabase | None = None
+
+
+def get_corpus_db() -> CorpusDatabase:
+    global _corpus_db
+    if _corpus_db is None:
+        _corpus_db = CorpusDatabase()
+    return _corpus_db
+
+
+@app.errorhandler(Exception)
+def handle_exception(exc):
+    logger.error("Unhandled exception on %s %s:\n%s", request.method, request.path, traceback.format_exc())
+    return jsonify({"error": "Internal server error. Check logs for details."}), 500
 
 
 @app.after_request
@@ -83,13 +102,17 @@ def retrieve_api():
 
 @app.get("/api/v2/corpus/status")
 def v2_corpus_status():
-    return jsonify(CorpusDatabase().stats())
+    try:
+        return jsonify(get_corpus_db().stats())
+    except Exception as exc:
+        logger.warning("Corpus status failed: %s", exc)
+        return jsonify({"backend": "unavailable", "document_count": 0, "chunk_count": 0, "categories": {}, "documents": []})
 
 
 @app.post("/api/v2/corpus/ingest-deposits")
 def v2_ingest_deposits():
     results = ingest_deposited_documents()
-    return jsonify({"results": results, "status": CorpusDatabase().stats()})
+    return jsonify({"results": results, "status": get_corpus_db().stats()})
 
 
 @app.post("/api/v2/corpus/upload")
@@ -104,15 +127,15 @@ def v2_upload_document():
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     target = UPLOAD_DIR / filename
     uploaded.save(target)
-    result = CorpusDatabase().upsert_document(target)
-    return jsonify({"result": result, "status": CorpusDatabase().stats()})
+    result = get_corpus_db().upsert_document(target)
+    return jsonify({"result": result, "status": get_corpus_db().stats()})
 
 
 @app.get("/api/v2/retrieve")
 def v2_retrieve():
     query = request.args.get("q", "")
     category = request.args.get("category") or None
-    return jsonify({"results": CorpusDatabase().retrieve(query, top_k=10, category=category)})
+    return jsonify({"results": get_corpus_db().retrieve(query, top_k=10, category=category)})
 
 
 @app.post("/api/v2/analyze")

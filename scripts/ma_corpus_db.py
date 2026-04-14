@@ -120,9 +120,9 @@ class CorpusDatabase:
             import psycopg
             from psycopg.rows import dict_row
 
-            return psycopg.connect(self.database_url, row_factory=dict_row)
+            return psycopg.connect(self.database_url, row_factory=dict_row, connect_timeout=10)
         self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.sqlite_path)
+        connection = sqlite3.connect(self.sqlite_path, timeout=10)
         connection.row_factory = sqlite3.Row
         return connection
 
