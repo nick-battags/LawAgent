@@ -26,6 +26,7 @@ from scripts.ma_crag_engine import (
 )
 from scripts.ma_db_crag_engine import analyze_contract_v2, generate_agreement_v2, ingest_deposited_documents
 from scripts.edgar_fetcher import search_edgar_filings, search_and_ingest
+from scripts.dataset_fetcher import ingest_maud, ingest_cuad, dataset_summary, get_ingest_status
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -85,7 +86,8 @@ def index():
 
 def _admin_authed() -> bool:
     if not ADMIN_PIN:
-        return True
+        log.warning("ADMIN_PIN not set — admin access disabled for safety. Set the ADMIN_PIN secret to enable admin features.")
+        return False
     return session.get("admin_authed") is True
 
 
@@ -533,6 +535,73 @@ def v2_template_generate():
     if not isinstance(details, dict):
         return jsonify({"error": "Template details must be an object."}), 400
     return jsonify(generate_agreement_v2({str(k): str(v) for k, v in details.items()}))
+
+
+@app.get("/api/datasets/status")
+@_require_admin
+def datasets_status():
+    return jsonify(dataset_summary())
+
+
+@app.post("/api/datasets/maud/ingest")
+@_require_admin
+def datasets_maud_ingest():
+    current = get_ingest_status("maud")
+    if current.get("status") in ("downloading", "ingesting"):
+        return jsonify({"error": "MAUD ingestion already in progress"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        max_contracts = min(max(int(payload.get("max_contracts", 20)), 1), 153)
+    except (TypeError, ValueError):
+        return jsonify({"error": "max_contracts must be a number"}), 400
+
+    raw_splits = payload.get("splits") or ["train"]
+    if not isinstance(raw_splits, list):
+        return jsonify({"error": "splits must be an array"}), 400
+    valid_splits = [s for s in raw_splits if isinstance(s, str) and s in ("train", "dev", "test")]
+    if not valid_splits:
+        valid_splits = ["train"]
+
+    def run_maud():
+        ingest_maud(max_contracts=max_contracts, splits=valid_splits)
+
+    thread = threading.Thread(target=run_maud, daemon=True)
+    thread.start()
+    return jsonify({"status": "started", "max_contracts": max_contracts, "splits": valid_splits})
+
+
+@app.post("/api/datasets/cuad/ingest")
+@_require_admin
+def datasets_cuad_ingest():
+    current = get_ingest_status("cuad")
+    if current.get("status") in ("downloading", "ingesting"):
+        return jsonify({"error": "CUAD ingestion already in progress"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        max_contracts = min(max(int(payload.get("max_contracts", 20)), 1), 510)
+    except (TypeError, ValueError):
+        return jsonify({"error": "max_contracts must be a number"}), 400
+
+    def run_cuad():
+        ingest_cuad(max_contracts=max_contracts)
+
+    thread = threading.Thread(target=run_cuad, daemon=True)
+    thread.start()
+    return jsonify({"status": "started", "max_contracts": max_contracts})
+
+
+@app.get("/api/datasets/maud/status")
+@_require_admin
+def datasets_maud_status():
+    return jsonify(get_ingest_status("maud"))
+
+
+@app.get("/api/datasets/cuad/status")
+@_require_admin
+def datasets_cuad_status():
+    return jsonify(get_ingest_status("cuad"))
 
 
 if __name__ == "__main__":

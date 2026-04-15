@@ -289,6 +289,22 @@
   align-self: flex-end;
 }
 
+.progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
 @media (max-width: 900px) {
   .admin-main {
     grid-template-columns: 1fr;

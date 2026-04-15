@@ -1,0 +1,58 @@
+1. MAUD and CUAD (The Labeled Datasets)
+Both datasets are fully open-source (CC BY 4.0) and maintained by the Atticus Project. You do not need to scrape them; they are readily available for machine learning workflows.
+
+Hugging Face: The easiest way to pull this data into a Python environment is via the Hugging Face datasets library.
+
+Run: pip install datasets
+
+Python: from datasets import load_dataset; dataset = load_dataset("cuad") (and similarly for MAUD-related repositories).
+
+GitHub: You can download the raw CSV/JSON files, the contract PDFs, and the specific evaluation scripts directly from the Atticus Project’s GitHub repositories.
+
+2. Law Insider (The Raw Corpus)
+Law Insider is a massive commercial database, and they do not offer an open, free-tier developer API for bulk downloading millions of raw contracts. Their API is primarily gated for enterprise data licensing.
+
+The Workaround (SEC EDGAR): Because Law Insider pulls heavily from public filings, you can bypass them and go straight to the source. Use the open-source Python library sec-edgar-downloader.
+
+Implementation: You can write a script to systematically download Form 8-K filings (specifically looking for "Exhibit 2.1" which is the SEC code for Merger/Asset Purchase Agreements) and Form 10-K filings (Exhibit 10s for material commercial contracts). This gives you the exact same raw, unstructured legal language that Law Insider indexes, entirely for free.
+
+Part 2: Implementing the AI Agent
+Because M&A documents are highly confidential, sending unredacted contracts to OpenAI or Anthropic APIs is usually a non-starter for law firms and corporate development teams. The best approach is to build a local Agentic Corrective RAG (CRAG) pipeline.
+
+Running this stack locally on Windows ensures zero data leakage while still providing powerful issue-spotting capabilities.
+
+The Tech Stack
+
+Ollama (Windows): To serve open-weight models locally. You will want a strong reasoning model (like llama3 or mistral) for generation and a dedicated embedding model (like nomic-embed-text) for your vector database.
+
+LangChain: To handle document loading, text splitting, and vector store integration.
+
+LangGraph: To orchestrate the agentic workflow, allowing the AI to evaluate its own findings and correct course if it misses a legal issue.
+
+Step-by-Step Architecture
+
+1. Knowledge Base Ingestion (LangChain)
+Before the agent can answer questions, it needs the MAUD/CUAD data and your EDGAR scrape as its baseline knowledge.
+
+Use LangChain’s RecursiveCharacterTextSplitter to chunk the CUAD annotations and the raw contracts.
+
+Embed these chunks using your local Ollama embedding model and store them in a local vector database like Chroma or FAISS.
+
+2. Building the CRAG Pipeline (LangGraph)
+A standard RAG pipeline will fail in M&A because if it retrieves the wrong paragraph, it will confidently hallucinate a legal answer. A Corrective RAG (CRAG) pipeline uses LangGraph to add a "grading" step.
+
+Here is how you map the nodes in LangGraph:
+
+Node 1 (Retrieve): The user uploads a target company's NDA. The agent queries the local vector store for chunks related to "Change of Control."
+
+Node 2 (Grade/Evaluate): This is the crucial corrective step. The LLM acts as an evaluator. It looks at the retrieved chunk and asks: "Does this text actually contain a Change of Control provision based on CUAD standards?"
+
+If Yes: The graph routes to the Generation Node.
+
+If No: The graph routes to a Knowledge Refinement Node.
+
+Node 3 (Refine/Re-query): If the initial retrieval failed, the agent rewrites the search query (e.g., expanding the search to look for "assignability" or "successor liability") and loops back to Node 1.
+
+Node 4 (Generate/Extract): Once the correct clause is verified, the Ollama model generates the final output—flagging the specific M&A risks, formatting them into a structured JSON, or summarizing the deal points exactly as MAUD trains it to do.
+
+By combining the expert annotations of MAUD and CUAD with an agentic LangGraph loop, your local model isn't just regurgitating text; it is actively hunting for legal clauses, verifying its own work, and spotting issues just like a junior associate.

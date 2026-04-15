@@ -360,4 +360,118 @@ document.getElementById("adminEdgarIngest").addEventListener("click", async () =
   }
 });
 
+async function refreshDatasetStats() {
+  try {
+    const data = await getJson("/api/datasets/status");
+    const maudEl = document.getElementById("maudStats");
+    const cuadEl = document.getElementById("cuadStats");
+    if (maudEl) {
+      const m = data.maud || {};
+      maudEl.innerHTML = `
+        <p><strong>${m.document_count || 0}</strong> documents · <strong>${m.chunk_count || 0}</strong> chunks in corpus</p>
+        ${m.status?.status && m.status.status !== "idle" ? `<p class="muted">Status: ${escapeHtml(m.status.message || m.status.status)}</p>` : ""}
+      `;
+    }
+    if (cuadEl) {
+      const c = data.cuad || {};
+      cuadEl.innerHTML = `
+        <p><strong>${c.document_count || 0}</strong> documents · <strong>${c.chunk_count || 0}</strong> chunks in corpus</p>
+        ${c.status?.status && c.status.status !== "idle" ? `<p class="muted">Status: ${escapeHtml(c.status.message || c.status.status)}</p>` : ""}
+      `;
+    }
+  } catch (err) {
+    /* silent */
+  }
+}
+
+let maudPollTimer = null;
+let cuadPollTimer = null;
+
+function pollDatasetStatus(dataset, progressEl, btnEl, originalText) {
+  const timer = setInterval(async () => {
+    try {
+      const status = await getJson(`/api/datasets/${dataset}/status`);
+      const pct = status.total ? Math.round((status.progress / status.total) * 100) : 0;
+      if (status.status === "ingesting" || status.status === "downloading") {
+        progressEl.innerHTML = `
+          <div class="progress-bar-container">
+            <div class="progress-bar" style="width:${pct}%"></div>
+          </div>
+          <p class="muted">${escapeHtml(status.message || "Processing...")} (${status.progress || 0}/${status.total || "?"})</p>
+        `;
+      } else if (status.status === "complete") {
+        clearInterval(timer);
+        progressEl.innerHTML = `<p style="color:var(--accent)"><strong>${escapeHtml(status.message || "Done!")}</strong></p>`;
+        btnEl.disabled = false;
+        btnEl.textContent = originalText;
+        refreshDashboard();
+        refreshDatasetStats();
+      } else if (status.status === "error") {
+        clearInterval(timer);
+        progressEl.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(status.message || "Unknown error")}</span>`;
+        btnEl.disabled = false;
+        btnEl.textContent = originalText;
+      }
+    } catch (err) {
+      /* keep polling */
+    }
+  }, 2000);
+  return timer;
+}
+
+document.getElementById("maudIngest").addEventListener("click", async () => {
+  const btn = document.getElementById("maudIngest");
+  btn.disabled = true;
+  btn.textContent = "Starting...";
+  const progress = document.getElementById("maudProgress");
+  progress.innerHTML = "Initiating MAUD download from HuggingFace...";
+
+  const splitVal = document.getElementById("maudSplit").value;
+  const splits = splitVal === "all" ? ["train", "dev", "test"] : [splitVal];
+
+  try {
+    await getJson("/api/datasets/maud/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_contracts: parseInt(document.getElementById("maudMax").value, 10),
+        splits: splits,
+      }),
+    });
+    btn.textContent = "Ingesting...";
+    if (maudPollTimer) clearInterval(maudPollTimer);
+    maudPollTimer = pollDatasetStatus("maud", progress, btn, "Start MAUD ingestion");
+  } catch (err) {
+    progress.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`;
+    btn.disabled = false;
+    btn.textContent = "Start MAUD ingestion";
+  }
+});
+
+document.getElementById("cuadIngest").addEventListener("click", async () => {
+  const btn = document.getElementById("cuadIngest");
+  btn.disabled = true;
+  btn.textContent = "Starting...";
+  const progress = document.getElementById("cuadProgress");
+  progress.innerHTML = "Initiating CUAD download from HuggingFace...";
+
+  try {
+    await getJson("/api/datasets/cuad/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_contracts: parseInt(document.getElementById("cuadMax").value, 10),
+      }),
+    });
+    btn.textContent = "Ingesting...";
+    if (cuadPollTimer) clearInterval(cuadPollTimer);
+    cuadPollTimer = pollDatasetStatus("cuad", progress, btn, "Start CUAD ingestion");
+  } catch (err) {
+    progress.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`;
+    btn.disabled = false;
+    btn.textContent = "Start CUAD ingestion";
+  }
+});
+
 refreshDashboard();
+refreshDatasetStats();

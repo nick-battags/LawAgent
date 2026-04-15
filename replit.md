@@ -41,6 +41,27 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - Searches the SEC EDGAR full-text search index (EFTS API) for M&A exhibits.
 - Downloads filing text, cleans HTML, and ingests into the corpus database.
 - Supports configurable queries, date ranges, and filing counts.
+- Retry logic with exponential backoff for HTTP requests.
+- Rate-limiting to respect SEC's 10 req/sec limit.
+- Exhibit type detection (Exhibit 2.1 merger agreements, Exhibit 10 material contracts).
+- Supports 8-K and 10-K form types.
+- Auto-passes deal_structure tags based on exhibit type.
+
+### MAUD Dataset Integration (`scripts/dataset_fetcher.py`)
+- Ingests expert-annotated merger agreements from the Atticus Project's MAUD dataset (CC BY 4.0, HuggingFace).
+- 153 real merger agreements with 92 labeled deal point categories (MAE, closing conditions, remedies, etc.).
+- Downloads CSV annotations and full contract text files from HuggingFace Hub.
+- Each contract is ingested with MAUD annotations inline for retrieval.
+- Auto-detects jurisdiction, deal_stance, and deal_structure tags.
+- Background thread ingestion with real-time progress polling.
+- Configurable max_contracts and split selection (train/dev/test).
+
+### CUAD Dataset Integration (`scripts/dataset_fetcher.py`)
+- Ingests 510 expert-annotated commercial contracts from the Atticus Project's CUAD dataset (CC BY 4.0, HuggingFace).
+- 41 clause types including change of control, IP ownership, non-compete, indemnification, governing law, etc.
+- SQuAD-format JSON with paragraph contexts and extractive Q&A annotations.
+- Clause categories mapped to LawAgent's M&A classification taxonomy.
+- Background thread ingestion with real-time progress polling.
 
 ### Corpus Database (`scripts/ma_corpus_db.py`)
 - Thread-safe singleton via `get_db()` — all modules share one `CorpusDatabase` instance per process.
@@ -91,6 +112,11 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - `POST /api/v2/template/generate` — V2 template generation
 - `GET /api/edgar/search?q=&max=&start_date=&end_date=` — Search EDGAR filings
 - `POST /api/edgar/ingest` — Search, download, and ingest EDGAR filings
+- `GET /api/datasets/status` — MAUD/CUAD corpus stats and ingestion status
+- `POST /api/datasets/maud/ingest` — Start async MAUD dataset ingestion (max_contracts, splits)
+- `GET /api/datasets/maud/status` — Poll MAUD ingestion progress
+- `POST /api/datasets/cuad/ingest` — Start async CUAD dataset ingestion (max_contracts)
+- `GET /api/datasets/cuad/status` — Poll CUAD ingestion progress
 
 ## Important Files
 - `app.py` — Flask web server with all API routes, session store
@@ -99,6 +125,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - `scripts/ma_db_crag_engine.py` — V2 database-backed CRAG engine (accepts session_context)
 - `scripts/ma_corpus_db.py` — Corpus database and ingestion utilities
 - `scripts/edgar_fetcher.py` — SEC EDGAR API integration
+- `scripts/dataset_fetcher.py` — MAUD/CUAD dataset ingestion from HuggingFace
 - `templates/index.html` — Frontend demo page
 - `templates/admin.html` — Backend management page
 - `static/app.js` — Frontend demo JavaScript (session upload, analysis, template)

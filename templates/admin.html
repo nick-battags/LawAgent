@@ -27,6 +27,8 @@
         <button class="sidebar-link active" data-panel="dashboard">Dashboard</button>
         <button class="sidebar-link" data-panel="corpus">Corpus Management</button>
         <button class="sidebar-link" data-panel="edgar">SEC EDGAR</button>
+        <button class="sidebar-link" data-panel="maud">MAUD Dataset</button>
+        <button class="sidebar-link" data-panel="cuad">CUAD Dataset</button>
         <button class="sidebar-link" data-panel="documents">Documents</button>
       </aside>
 
@@ -164,6 +166,106 @@
               </div>
             </div>
             <div id="adminEdgarResults" class="result-box"></div>
+          </div>
+        </section>
+
+        <section id="panel-maud" class="admin-panel">
+          <div class="section-heading">
+            <p class="eyebrow">MAUD dataset</p>
+            <h2>Merger Agreement Understanding Dataset</h2>
+            <p>Ingest expert-annotated M&A deal points from the Atticus Project's MAUD dataset (CC BY 4.0). Includes 153 real merger agreements with 92 labeled deal point categories covering MAE definitions, closing conditions, remedies, and more.</p>
+          </div>
+          <div class="admin-grid">
+            <div class="admin-card">
+              <h3>Ingest MAUD contracts</h3>
+              <p class="muted">Download annotated merger agreements from HuggingFace and ingest them into the corpus. Each contract includes MAUD deal point annotations alongside the full agreement text.</p>
+              <div class="admin-form">
+                <div class="inline-fields">
+                  <label>
+                    Max contracts
+                    <input id="maudMax" type="number" value="20" min="1" max="153">
+                  </label>
+                  <label>
+                    Splits
+                    <select id="maudSplit">
+                      <option value="train" selected>Train</option>
+                      <option value="dev">Dev</option>
+                      <option value="test">Test</option>
+                      <option value="all">All (train + dev + test)</option>
+                    </select>
+                  </label>
+                </div>
+                <button id="maudIngest" class="primary">Start MAUD ingestion</button>
+              </div>
+              <div id="maudProgress" class="result-box"></div>
+            </div>
+            <div class="admin-card">
+              <h3>MAUD corpus stats</h3>
+              <p class="muted">Current MAUD documents in the training corpus.</p>
+              <div id="maudStats" class="result-box">
+                <p class="muted">Loading...</p>
+              </div>
+            </div>
+          </div>
+          <div class="admin-card wide">
+            <h3>MAUD deal point categories</h3>
+            <p class="muted">The MAUD dataset covers these M&A deal point categories:</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+              <span class="tag">Conditions to Closing</span>
+              <span class="tag">Deal Protection</span>
+              <span class="tag">General Information</span>
+              <span class="tag">Knowledge</span>
+              <span class="tag tag-stance">Material Adverse Effect</span>
+              <span class="tag">Operating Covenants</span>
+              <span class="tag tag-structure">Remedies</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-cuad" class="admin-panel">
+          <div class="section-heading">
+            <p class="eyebrow">CUAD dataset</p>
+            <h2>Contract Understanding Atticus Dataset</h2>
+            <p>Ingest 510 expert-annotated commercial contracts from the Atticus Project's CUAD dataset (CC BY 4.0). Covers 41 clause types including change of control, IP ownership, non-compete, indemnification, and more — sourced from real SEC filings.</p>
+          </div>
+          <div class="admin-grid">
+            <div class="admin-card">
+              <h3>Ingest CUAD contracts</h3>
+              <p class="muted">Download annotated contracts from HuggingFace and ingest them into the corpus. Each contract includes CUAD clause annotations identifying 41 key legal provisions.</p>
+              <div class="admin-form">
+                <label>
+                  Max contracts
+                  <input id="cuadMax" type="number" value="20" min="1" max="510">
+                </label>
+                <button id="cuadIngest" class="primary">Start CUAD ingestion</button>
+              </div>
+              <div id="cuadProgress" class="result-box"></div>
+            </div>
+            <div class="admin-card">
+              <h3>CUAD corpus stats</h3>
+              <p class="muted">Current CUAD documents in the training corpus.</p>
+              <div id="cuadStats" class="result-box">
+                <p class="muted">Loading...</p>
+              </div>
+            </div>
+          </div>
+          <div class="admin-card wide">
+            <h3>CUAD clause categories</h3>
+            <p class="muted">The CUAD dataset identifies these clause types in commercial contracts:</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+              <span class="tag tag-jurisdiction">Change of Control</span>
+              <span class="tag">Non-Compete</span>
+              <span class="tag tag-stance">IP Ownership</span>
+              <span class="tag">License Grant</span>
+              <span class="tag tag-structure">Termination</span>
+              <span class="tag">Exclusivity</span>
+              <span class="tag">Governing Law</span>
+              <span class="tag">Cap on Liability</span>
+              <span class="tag">Audit Rights</span>
+              <span class="tag">Anti-Assignment</span>
+              <span class="tag">ROFR/ROFO</span>
+              <span class="tag">Revenue Sharing</span>
+            </div>
           </div>
         </section>
 
