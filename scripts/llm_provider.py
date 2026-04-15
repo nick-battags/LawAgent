@@ -1,7 +1,7 @@
 """Ollama LLM provider for the 2-model CRAG pipeline.
 
-Llama 3.1 8B — grader/gatekeeper (strict JSON relevance scoring, query rewriting).
-Command-R 7B — generator (synthesis with inline citations, contract analysis).
+Llama 3.1 8B: grader/gatekeeper (strict JSON relevance scoring, query rewriting).
+Command-R 7B: generator (synthesis with inline citations, contract analysis).
 Designed for local Ollama deployment with graceful deterministic fallback.
 """
 
@@ -29,11 +29,14 @@ def get_llm() -> OllamaProvider:
 class OllamaProvider:
     def __init__(self) -> None:
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.grader_model = os.environ.get("GRADER_MODEL", "llama3.1:8b")
-        self.generator_model = os.environ.get("GENERATOR_MODEL", "command-r:7b")
+        self.requested_grader_model = os.environ.get("GRADER_MODEL", "llama3.1:8b")
+        self.requested_generator_model = os.environ.get("GENERATOR_MODEL", "command-r:7b")
+        self.grader_model = self.requested_grader_model
+        self.generator_model = self.requested_generator_model
         self.timeout = int(os.environ.get("LLM_TIMEOUT", "120"))
         self._available: bool | None = None
         self._models: list[str] = []
+        self._chat_endpoint = "/api/chat"
 
     def is_available(self) -> bool:
         if self._available is None:
@@ -42,11 +45,19 @@ class OllamaProvider:
                 self._available = r.ok
                 if self._available:
                     self._models = [m["name"] for m in r.json().get("models", [])]
+                    self.grader_model = self._resolve_model_name(
+                        self.requested_grader_model,
+                        role="grader",
+                    )
+                    self.generator_model = self._resolve_model_name(
+                        self.requested_generator_model,
+                        role="generator",
+                    )
                     logger.info("Ollama online. Models: %s", ", ".join(self._models))
             except Exception:
                 self._available = False
                 logger.info(
-                    "Ollama not reachable at %s — deterministic fallback active",
+                    "Ollama not reachable at %s; deterministic fallback active",
                     self.base_url,
                 )
         return self._available
@@ -60,11 +71,90 @@ class OllamaProvider:
         return {
             "ollama_available": available,
             "ollama_url": self.base_url,
+            "requested_grader_model": self.requested_grader_model,
+            "requested_generator_model": self.requested_generator_model,
             "grader_model": self.grader_model,
             "generator_model": self.generator_model,
             "loaded_models": self._models if available else [],
+            "chat_endpoint": self._chat_endpoint,
             "mode": "llm" if available else "deterministic",
         }
+
+    @staticmethod
+    def _model_prefix(model_name: str) -> str:
+        return model_name.split(":", 1)[0].strip().lower()
+
+    def _resolve_model_name(self, requested: str, role: str) -> str:
+        """Resolve requested model tag to an installed Ollama model tag."""
+        if not self._models:
+            return requested
+
+        requested_lower = requested.lower().strip()
+
+        for model in self._models:
+            if model.lower() == requested_lower:
+                return model
+
+        aliases: dict[str, list[str]] = {
+            "llama3.1:8b": [
+                "llama3.1:8b",
+                "llama3.1:8b-instruct",
+                "llama3.1:8b-instruct-q4_k_m",
+                "llama3.1",
+            ],
+            "command-r:7b": [
+                "command-r:7b",
+                "command-r7b:latest",
+                "command-r7b",
+                "command-r:latest",
+                "command-r",
+            ],
+        }
+
+        candidate_aliases = aliases.get(requested_lower, [requested_lower])
+        installed_lower = {m.lower(): m for m in self._models}
+
+        for alias in candidate_aliases:
+            if alias in installed_lower:
+                resolved = installed_lower[alias]
+                logger.info("Resolved %s model '%s' -> '%s'", role, requested, resolved)
+                return resolved
+
+        requested_prefix = self._model_prefix(requested_lower)
+        for model in self._models:
+            if self._model_prefix(model) == requested_prefix:
+                logger.info(
+                    "Resolved %s model by prefix '%s' -> '%s'",
+                    role,
+                    requested,
+                    model,
+                )
+                return model
+
+        logger.warning(
+            "Requested %s model '%s' not found in Ollama tags; using requested value as-is.",
+            role,
+            requested,
+        )
+        return requested
+
+    @staticmethod
+    def _messages_to_prompt(messages: list[dict[str, str]]) -> str:
+        prompt_parts: list[str] = []
+        for msg in messages:
+            role = msg.get("role", "user").upper()
+            content = msg.get("content", "")
+            prompt_parts.append(f"{role}:\n{content}")
+        prompt_parts.append("ASSISTANT:")
+        return "\n\n".join(prompt_parts)
+
+    @staticmethod
+    def _format_request_error(exc: requests.RequestException) -> str:
+        if getattr(exc, "response", None) is not None:
+            status = exc.response.status_code
+            body = (exc.response.text or "")[:350]
+            return f"{exc} (status={status}, body={body})"
+        return str(exc)
 
     def _chat(
         self,
@@ -73,6 +163,12 @@ class OllamaProvider:
         format_json: bool = False,
         temperature: float = 0.0,
     ) -> str:
+        # Ensure model tags are resolved even if status/is_available has not been called yet.
+        if not self._models:
+            self.is_available()
+        if self._models and model.lower() not in {m.lower() for m in self._models}:
+            model = self._resolve_model_name(model, role="runtime")
+
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -81,11 +177,29 @@ class OllamaProvider:
         }
         if format_json:
             payload["format"] = "json"
-        resp = requests.post(
-            f"{self.base_url}/api/chat",
-            json=payload,
-            timeout=self.timeout,
-        )
+
+        resp = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
+
+        # Some Ollama versions do not expose /api/chat.
+        if resp.status_code == 404:
+            generate_payload: dict[str, Any] = {
+                "model": model,
+                "prompt": self._messages_to_prompt(messages),
+                "stream": False,
+                "options": {"temperature": temperature},
+            }
+            if format_json:
+                generate_payload["format"] = "json"
+            resp = requests.post(
+                f"{self.base_url}/api/generate",
+                json=generate_payload,
+                timeout=self.timeout,
+            )
+            self._chat_endpoint = "/api/generate"
+            resp.raise_for_status()
+            return str(resp.json().get("response", ""))
+
+        self._chat_endpoint = "/api/chat"
         resp.raise_for_status()
         return resp.json()["message"]["content"]
 
@@ -114,7 +228,12 @@ class OllamaProvider:
             logger.warning("Grading returned non-JSON for query '%s': %s", query[:80], exc)
             return {"score": "yes"}
         except requests.RequestException as exc:
-            logger.warning("Grading request failed for query '%s': %s — switching to deterministic", query[:80], exc)
+            detail = self._format_request_error(exc)
+            logger.warning(
+                "Grading request failed for query '%s': %s; switching to deterministic",
+                query[:80],
+                detail,
+            )
             self._available = False
             return {"score": "fallback"}
 
@@ -211,7 +330,7 @@ class OllamaProvider:
                 "citations": [],
             }
         except requests.RequestException as exc:
-            logger.error("Generation failed: %s", exc)
+            logger.error("Generation failed: %s", self._format_request_error(exc))
             return {
                 "analysis": f"LLM generation unavailable: {exc}",
                 "key_findings": [],
