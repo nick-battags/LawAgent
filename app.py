@@ -222,6 +222,15 @@ def v2_upload_document():
     return jsonify({"results": results, "errors": errors, "status": get_db().stats()})
 
 
+@app.delete("/api/v2/corpus/document/<int:doc_id>")
+@_require_admin
+def v2_delete_document(doc_id: int):
+    result = get_db().delete_document(doc_id)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+
 @app.post("/api/v2/corpus/document/<int:doc_id>/tags")
 @_require_admin
 def v2_update_tags(doc_id: int):

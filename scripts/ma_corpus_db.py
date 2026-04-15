@@ -24,7 +24,13 @@ from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SQLITE_PATH = ROOT / "instance" / "lawagent_training.sqlite3"
-DEPOSIT_DIRS = [ROOT / "attached_assets", ROOT / "training_docs_inbox"]
+DEPOSIT_DIRS = [
+    ROOT / "attached_assets",
+    ROOT / "training_docs_inbox",
+    ROOT / "training_docs_inbox" / "guides",
+    ROOT / "training_docs_inbox" / "notes",
+    ROOT / "training_docs_inbox" / "playbooks",
+]
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
 
@@ -79,7 +85,14 @@ def extract_text(path: Path) -> list[Document]:
     return []
 
 
-def classify_document(title: str, text: str) -> dict[str, str]:
+FOLDER_CATEGORY_HINTS: dict[str, tuple[str, str]] = {
+    "guides": ("guide", "Guide"),
+    "notes": ("capability_notes", "Capability Notes"),
+    "playbooks": ("playbook", "Playbook"),
+}
+
+
+def classify_document(title: str, text: str, folder_hint: str = "") -> dict[str, str]:
     haystack = f"{title}\n{text[:8000]}".lower()
     rules = [
         ("ancillary_agreements", "Resource Kit", ["ancillary", "escrow agreements", "transition services", "assignment and assumption"]),
@@ -92,10 +105,21 @@ def classify_document(title: str, text: str) -> dict[str, str]:
         ("environmental", "Specialist Diligence", ["environmental", "climate change", "esg"]),
         ("real_estate", "Specialist Diligence", ["real estate", "reit", "property"]),
         ("purchase_agreement", "Agreement Template", ["agreement and plan", "purchase agreement", "merger agreement", "representations and warranties"]),
+        ("guide", "Guide", ["guide", "how to", "step-by-step", "walkthrough", "handbook", "getting started", "best practice"]),
+        ("practical_guidance", "Practical Guidance", ["practical guidance", "practice note", "practice point", "drafting note", "advisory", "key considerations"]),
+        ("playbook", "Playbook", ["playbook", "runbook", "workflow", "standard operating procedure", "sop", "action plan", "execution plan"]),
+        ("capability_notes", "Capability Notes", ["capability", "agent note", "improvement note", "capability improvement", "skill assessment", "performance note"]),
+        ("prompt_engineering", "Prompt Engineering", ["prompt engineering", "prompt template", "system prompt", "few-shot", "chain of thought", "prompt design", "llm instruction"]),
+        ("training_instructions", "Training Instructions", ["training instruction", "training material", "onboarding", "curriculum", "learning objective", "training guide", "lesson plan"]),
     ]
     for category, doc_type, keywords in rules:
         if any(keyword in haystack for keyword in keywords):
             return {"category": category, "document_type": doc_type}
+
+    if folder_hint and folder_hint in FOLDER_CATEGORY_HINTS:
+        cat, dtype = FOLDER_CATEGORY_HINTS[folder_hint]
+        return {"category": cat, "document_type": dtype}
+
     return {"category": "general_ma", "document_type": "Training Document"}
 
 
@@ -277,7 +301,7 @@ class CorpusDatabase:
             connection.commit()
         CorpusDatabase._schema_initialized = True
 
-    def upsert_document(self, path: Path, tag_overrides: dict[str, str] | None = None) -> dict[str, Any]:
+    def upsert_document(self, path: Path, tag_overrides: dict[str, str] | None = None, folder_hint: str = "") -> dict[str, Any]:
         self.init_schema()
         path = path.resolve()
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -289,7 +313,7 @@ class CorpusDatabase:
         if not full_text.strip():
             return {"status": "skipped", "reason": "no_text_extracted", "path": str(path)}
 
-        classification = classify_document(path.stem, full_text)
+        classification = classify_document(path.stem, full_text, folder_hint=folder_hint)
         source_system = detect_source_system(full_text, path)
         tags = detect_tags(path.stem, full_text)
         if tag_overrides:
@@ -406,15 +430,46 @@ class CorpusDatabase:
             "deal_structure": tags["deal_structure"],
         }
 
+    @staticmethod
+    def _derive_folder_hint(file_path: Path) -> str:
+        inbox_root = ROOT / "training_docs_inbox"
+        try:
+            rel = file_path.resolve().relative_to(inbox_root.resolve())
+        except ValueError:
+            return ""
+        for part in rel.parts:
+            if part in FOLDER_CATEGORY_HINTS:
+                return part
+        return ""
+
     def ingest_deposit_dirs(self) -> list[dict[str, Any]]:
+        for directory in DEPOSIT_DIRS:
+            directory.mkdir(parents=True, exist_ok=True)
+        seen: set[Path] = set()
         results = []
         for directory in DEPOSIT_DIRS:
             if not directory.exists():
                 continue
             for path in sorted(directory.rglob("*")):
+                resolved = path.resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
                 if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
-                    results.append(self.upsert_document(path))
+                    hint = self._derive_folder_hint(path)
+                    results.append(self.upsert_document(path, folder_hint=hint))
         return results
+
+    def delete_document(self, document_id: int) -> dict[str, Any]:
+        self.init_schema()
+        with self.connect() as connection:
+            existing = self._fetch_one(connection, "SELECT id, title FROM lawagent_documents WHERE id = %s", (document_id,))
+            if not existing:
+                return {"error": "Document not found", "document_id": document_id}
+            self._execute(connection, "DELETE FROM lawagent_chunks WHERE document_id = %s", (document_id,))
+            self._execute(connection, "DELETE FROM lawagent_documents WHERE id = %s", (document_id,))
+            connection.commit()
+        return {"status": "deleted", "document_id": document_id, "title": existing["title"]}
 
     def retrieve(self, query: str, top_k: int = 8, category: str | None = None) -> list[dict[str, Any]]:
         self.init_schema()

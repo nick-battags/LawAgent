@@ -39,10 +39,34 @@ function renderDashboard(data) {
   document.getElementById("statChunks").textContent = data.chunk_count || 0;
   document.getElementById("statCategories").textContent = Object.keys(data.categories || {}).length;
 
+  const CATEGORY_GROUPS = {
+    "M&A Legal": ["ancillary_agreements", "asset_acquisition", "due_diligence", "corporate_templates_market_data", "ip_technology", "employment_benefits", "regulatory", "environmental", "real_estate", "purchase_agreement", "general_ma"],
+    "Guides & Playbooks": ["guide", "practical_guidance", "playbook"],
+    "Notes & Training": ["capability_notes", "prompt_engineering", "training_instructions"],
+  };
+
   const cats = document.getElementById("categoryBreakdown");
-  cats.innerHTML = Object.entries(data.categories || {})
-    .map(([name, count]) => `<span class="tag">${escapeHtml(name.replaceAll("_", " "))}: ${count}</span>`)
-    .join(" ");
+  const catEntries = Object.entries(data.categories || {});
+  if (catEntries.length) {
+    let html = "";
+    for (const [groupLabel, groupCats] of Object.entries(CATEGORY_GROUPS)) {
+      const matched = catEntries.filter(([name]) => groupCats.includes(name));
+      if (matched.length) {
+        html += `<div style="margin-bottom:10px"><strong style="font-size:.85rem;color:var(--fg-muted)">${escapeHtml(groupLabel)}</strong><br>`;
+        html += matched.map(([name, count]) => `<span class="tag">${escapeHtml(name.replaceAll("_", " "))}: ${count}</span>`).join(" ");
+        html += `</div>`;
+      }
+    }
+    const ungrouped = catEntries.filter(([name]) => !Object.values(CATEGORY_GROUPS).flat().includes(name));
+    if (ungrouped.length) {
+      html += `<div style="margin-bottom:10px"><strong style="font-size:.85rem;color:var(--fg-muted)">Other</strong><br>`;
+      html += ungrouped.map(([name, count]) => `<span class="tag">${escapeHtml(name.replaceAll("_", " "))}: ${count}</span>`).join(" ");
+      html += `</div>`;
+    }
+    cats.innerHTML = html;
+  } else {
+    cats.innerHTML = "";
+  }
 
   const docList = document.getElementById("dashboardDocList");
   const docs = data.documents || [];
@@ -101,7 +125,10 @@ function renderDocumentTable(docs) {
             <td>${doc.deal_structure ? `<span class="tag tag-structure">${escapeHtml(doc.deal_structure)}</span>` : '<span class="muted">--</span>'}</td>
             <td>${escapeHtml(doc.source_system)}</td>
             <td>${doc.chunk_count}</td>
-            <td><button class="edit-tags-btn secondary" data-doc-id="${doc.id}" data-jurisdiction="${escapeHtml(doc.jurisdiction || "")}" data-stance="${escapeHtml(doc.deal_stance || "")}" data-structure="${escapeHtml(doc.deal_structure || "")}">Edit tags</button></td>
+            <td>
+              <button class="edit-tags-btn secondary" data-doc-id="${doc.id}" data-jurisdiction="${escapeHtml(doc.jurisdiction || "")}" data-stance="${escapeHtml(doc.deal_stance || "")}" data-structure="${escapeHtml(doc.deal_structure || "")}">Edit tags</button>
+              <button class="delete-doc-btn ghost" data-doc-id="${doc.id}" data-title="${escapeHtml(doc.title)}" style="color:var(--red);margin-left:4px">Delete</button>
+            </td>
           </tr>
         `).join("")}
       </tbody>
@@ -110,6 +137,26 @@ function renderDocumentTable(docs) {
 
   container.querySelectorAll(".edit-tags-btn").forEach((btn) => {
     btn.addEventListener("click", () => openTagEditor(btn));
+  });
+
+  container.querySelectorAll(".delete-doc-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const docId = btn.dataset.docId;
+      const title = btn.dataset.title;
+      if (!confirm(`Delete "${title}" and all its chunks from the corpus?`)) return;
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+      try {
+        const resp = await fetch(`/api/v2/corpus/document/${docId}`, { method: "DELETE" });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Delete failed");
+        refreshDashboard();
+      } catch (err) {
+        alert("Delete failed: " + err.message);
+        btn.disabled = false;
+        btn.textContent = "Delete";
+      }
+    });
   });
 }
 

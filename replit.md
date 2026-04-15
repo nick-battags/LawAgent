@@ -69,7 +69,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - Dual-backend: PostgreSQL (via `DATABASE_URL`) or SQLite fallback.
 - Tables: `lawagent_documents` and `lawagent_chunks`.
 - Document extraction: PDF (pypdf), DOCX (python-docx), TXT, MD.
-- Automatic classification into categories: ancillary_agreements, asset_acquisition, due_diligence, purchase_agreement, ip_technology, employment_benefits, regulatory, environmental, real_estate, general_ma.
+- Automatic classification into categories: ancillary_agreements, asset_acquisition, due_diligence, purchase_agreement, ip_technology, employment_benefits, regulatory, environmental, real_estate, general_ma, guide, practical_guidance, playbook, capability_notes, prompt_engineering, training_instructions. Deposit sub-folder names (guides/, notes/, playbooks/) serve as classification hints when content-based rules don't match.
 - Automatic tag detection: jurisdiction (Delaware, New York, California, Texas, etc.), deal_stance (pro-buyer, pro-seller, balanced), deal_structure (asset purchase, stock purchase, merger). Tags stored in document metadata JSON.
 - Source system detection: LexisNexis, SEC EDGAR, user-provided.
 - Multi-file upload: batch upload with optional tag overrides applied to all files in the batch.
@@ -107,6 +107,7 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 - `GET /api/v2/corpus/status` — Corpus database stats
 - `POST /api/v2/corpus/ingest-deposits` — Ingest deposited files
 - `POST /api/v2/corpus/upload` — Upload and ingest one or more files to global corpus (supports multi-file, optional tag overrides: jurisdiction, deal_stance, deal_structure)
+- `DELETE /api/v2/corpus/document/<id>` — Delete a document and its chunks from the corpus
 - `POST /api/v2/corpus/document/<id>/tags` — Update tags on an existing document
 - `GET /api/v2/retrieve?q=&category=` — V2 corpus retrieval (admin-gated)
 - `POST /api/v2/template/generate` — V2 template generation
@@ -136,6 +137,9 @@ LawAgent is a Python M&A Corrective RAG engine and pipeline accessible via a loc
 ## Deposit Directories
 - `attached_assets/` — Auto-scanned for ingestion
 - `training_docs_inbox/` — Auto-scanned for ingestion
+- `training_docs_inbox/guides/` — Auto-scanned; folder hint classifies as "guide"
+- `training_docs_inbox/notes/` — Auto-scanned; folder hint classifies as "capability_notes"
+- `training_docs_inbox/playbooks/` — Auto-scanned; folder hint classifies as "playbook"
 - `training_docs_inbox/uploads/` — File upload target
 - `training_docs_inbox/edgar/` — EDGAR download target
 
