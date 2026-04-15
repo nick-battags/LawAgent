@@ -520,5 +520,63 @@ document.getElementById("cuadIngest").addEventListener("click", async () => {
   }
 });
 
+async function loadPipelineInfo() {
+  try {
+    const data = await getJson("/api/v2/pipeline/status");
+    const llm = data.llm || {};
+    const vs = data.vector_store || {};
+    document.getElementById("statVectors").textContent = vs.vector_count || 0;
+    document.getElementById("statLlmMode").textContent = llm.mode === "llm" ? "LLM" : "Deterministic";
+    const info = document.getElementById("pipelineInfo");
+    if (info) {
+      info.innerHTML = `
+        <div><strong>Ollama</strong><br><span class="muted">${llm.ollama_available ? "Connected" : "Not available"} (${escapeHtml(llm.ollama_url || "")})</span></div>
+        <div><strong>Grader</strong><br><span class="muted">${escapeHtml(llm.grader_model || "n/a")}</span></div>
+        <div><strong>Generator</strong><br><span class="muted">${escapeHtml(llm.generator_model || "n/a")}</span></div>
+        <div><strong>Embedding</strong><br><span class="muted">${escapeHtml(vs.embedding || "default")}</span></div>
+        <div><strong>Vectors</strong><br><span class="muted">${vs.vector_count || 0}</span></div>
+        <div><strong>Mode</strong><br><span class="muted">${llm.mode === "llm" ? "LLM active" : "Deterministic fallback"}</span></div>`;
+    }
+  } catch {
+    document.getElementById("statVectors").textContent = "?";
+    document.getElementById("statLlmMode").textContent = "?";
+  }
+}
+
+document.getElementById("adminVectorSync").addEventListener("click", async () => {
+  const btn = document.getElementById("adminVectorSync");
+  const result = document.getElementById("vectorResult");
+  btn.disabled = true;
+  btn.textContent = "Syncing...";
+  result.innerHTML = "Syncing PostgreSQL chunks to ChromaDB vector index...";
+  try {
+    const data = await getJson("/api/v2/vectors/sync", { method: "POST" });
+    result.innerHTML = `<span style="color:var(--green)">Sync complete: ${data.synced || 0} chunks processed (${data.before || 0} → ${data.after || 0} vectors)</span>`;
+    loadPipelineInfo();
+  } catch (err) {
+    result.innerHTML = `<span style="color:var(--red)">Sync failed: ${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Sync vectors from PostgreSQL";
+  }
+});
+
+document.getElementById("adminVectorClear").addEventListener("click", async () => {
+  if (!confirm("Clear all vectors from ChromaDB? This does not affect PostgreSQL data. You can re-sync afterward.")) return;
+  const btn = document.getElementById("adminVectorClear");
+  const result = document.getElementById("vectorResult");
+  btn.disabled = true;
+  try {
+    await getJson("/api/v2/vectors/clear", { method: "POST" });
+    result.innerHTML = `<span style="color:var(--amber)">Vector index cleared. Use "Sync vectors" to rebuild.</span>`;
+    loadPipelineInfo();
+  } catch (err) {
+    result.innerHTML = `<span style="color:var(--red)">Clear failed: ${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 refreshDashboard();
 refreshDatasetStats();
+loadPipelineInfo();

@@ -582,6 +582,43 @@ class CorpusDatabase:
             ))
         return results
 
+    def get_all_chunks(self) -> list[dict[str, Any]]:
+        self.init_schema()
+        with self.connect() as connection:
+            rows = self._fetch_all(
+                connection,
+                """
+                SELECT c.id, c.document_id, c.page, c.text,
+                       d.title, d.category, d.document_type, d.source_system, d.metadata
+                FROM lawagent_chunks c
+                JOIN lawagent_documents d ON d.id = c.document_id
+                ORDER BY c.document_id, c.chunk_index
+                """,
+                (),
+            )
+        chunks: list[dict[str, Any]] = []
+        for row in rows:
+            meta = row.get("metadata") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            chunks.append({
+                "chunk_id": row["id"],
+                "document_id": row["document_id"],
+                "page": row["page"],
+                "text": row["text"],
+                "title": row["title"],
+                "category": row["category"],
+                "document_type": row["document_type"],
+                "source_system": row["source_system"],
+                "jurisdiction": meta.get("jurisdiction", ""),
+                "deal_stance": meta.get("deal_stance", ""),
+                "deal_structure": meta.get("deal_structure", ""),
+            })
+        return chunks
+
     def stats(self) -> dict[str, Any]:
         documents = self.list_documents()
         categories: dict[str, int] = {}

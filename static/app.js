@@ -108,6 +108,16 @@ function renderAnalysis(data) {
           <p><strong>Corrective action:</strong> ${escapeHtml(issue.corrective_action)}</p>
           <div class="suggested">${escapeHtml(issue.suggested_clause)}</div>
           ${
+            issue.llm_enhancement
+              ? `<div class="llm-enhancement">
+                  <span class="tag present">LLM-enhanced</span>
+                  ${issue.llm_enhancement.enhanced_analysis ? `<p>${escapeHtml(issue.llm_enhancement.enhanced_analysis)}</p>` : ""}
+                  ${issue.llm_enhancement.recommended_language ? `<p><strong>Recommended language:</strong> ${escapeHtml(issue.llm_enhancement.recommended_language)}</p>` : ""}
+                  ${issue.llm_enhancement.precedent_basis ? `<p class="muted">${escapeHtml(issue.llm_enhancement.precedent_basis)}</p>` : ""}
+                </div>`
+              : ""
+          }
+          ${
             issue.corpus_support
               ? `<p><strong>Corpus support:</strong></p>${issue.corpus_support
                   .map(
@@ -169,8 +179,27 @@ function renderAnalysis(data) {
         : ""
     }
     ${
+      data.llm_analysis && data.llm_analysis.analysis
+        ? `<h3>LLM synthesis (Command-R7B)</h3>
+           <div class="issue">
+             ${data.llm_analysis.risk_level && data.llm_analysis.risk_level !== "unknown" ? `<span class="tag ${data.llm_analysis.risk_level}">${escapeHtml(data.llm_analysis.risk_level)} risk</span>` : ""}
+             <p>${escapeHtml(data.llm_analysis.analysis)}</p>
+             ${data.llm_analysis.key_findings && data.llm_analysis.key_findings.length ? `<p><strong>Key findings:</strong></p><ul>${data.llm_analysis.key_findings.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>` : ""}
+             ${data.llm_analysis.corrective_suggestions && data.llm_analysis.corrective_suggestions.length ? `<p><strong>Corrective suggestions:</strong></p><ul>${data.llm_analysis.corrective_suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ul>` : ""}
+             ${data.llm_analysis.citations && data.llm_analysis.citations.length ? `<p><strong>Citations:</strong></p>${data.llm_analysis.citations.map(c => `<div class="reference"><p><strong>${escapeHtml(c.source || "")}</strong> Page ${escapeHtml(c.page || "")}: ${escapeHtml(c.excerpt || "")}</p></div>`).join("")}` : ""}
+           </div>`
+        : ""
+    }
+    ${
       data.architecture
-        ? `<h3>V2 architecture</h3><div class="issue"><p><strong>Variation:</strong> ${escapeHtml(data.architecture.variation)}</p><p><strong>Database:</strong> ${escapeHtml(data.architecture.database)}</p><p>${data.architecture.security.map(escapeHtml).join("<br>")}</p></div>`
+        ? `<h3>V2 architecture</h3><div class="issue">
+            <p><strong>Mode:</strong> ${escapeHtml(data.architecture.mode || "deterministic")}</p>
+            <p><strong>Grader:</strong> ${escapeHtml(data.architecture.grader || "n/a")} · <strong>Generator:</strong> ${escapeHtml(data.architecture.generator || "n/a")}</p>
+            <p><strong>Embedding:</strong> ${escapeHtml(data.architecture.embedding || "default")} · <strong>Vectors:</strong> ${data.architecture.vector_count || 0}</p>
+            <p><strong>Database:</strong> ${escapeHtml(data.architecture.database || "")}</p>
+            ${data.architecture.pipeline ? `<ol>${data.architecture.pipeline.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>` : ""}
+            <p>${(data.architecture.security || []).map(escapeHtml).join("<br>")}</p>
+          </div>`
         : ""
     }
     <div class="issue medium"><p>${escapeHtml(data.disclaimer)}</p></div>
@@ -335,3 +364,26 @@ copyDraft.addEventListener("click", async () => {
 });
 
 buildTemplateForm();
+
+async function loadPipelineStatus() {
+  const el = document.getElementById("pipelineStatus");
+  if (!el) return;
+  try {
+    const data = await getJson("/api/v2/pipeline/status");
+    const llm = data.llm || {};
+    const vs = data.vector_store || {};
+    const mode = llm.mode === "llm"
+      ? `<span class="tag present">LLM active</span>`
+      : `<span class="tag">Deterministic fallback</span>`;
+    el.innerHTML = `
+      <div class="pipeline-meta">
+        ${mode}
+        <span class="muted">${vs.vector_count || 0} vectors indexed</span>
+        <span class="muted">${vs.embedding || "default"}</span>
+      </div>`;
+  } catch {
+    el.innerHTML = `<div class="pipeline-meta"><span class="tag">Status unavailable</span></div>`;
+  }
+}
+
+loadPipelineStatus();

@@ -1,4 +1,9 @@
-"""Database-backed LangChain Corrective RAG version for LawAgent."""
+"""Database-backed Corrective RAG engine for LawAgent.
+
+Uses the 2-model CRAG pipeline (Llama 3.1 grader + Command-R7B generator)
+when Ollama is available, with automatic deterministic fallback.
+ChromaDB provides vector retrieval; PostgreSQL remains the source of truth.
+"""
 
 from __future__ import annotations
 
@@ -6,17 +11,28 @@ import logging
 from typing import Any
 
 from scripts.ma_corpus_db import get_db, normalize_ws
-from scripts.ma_crag_engine import SAMPLE_CONTRACT, analyze_contract, generate_agreement, retrieve as static_retrieve
+from scripts.ma_crag_engine import (
+    SAMPLE_CONTRACT,
+    analyze_contract,
+    generate_agreement,
+    retrieve as static_retrieve,
+)
+from scripts.crag_pipeline import (
+    retrieve_and_grade,
+    generate_with_context,
+    enhance_issue_with_llm,
+    pipeline_status,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def build_context(results: list[dict[str, Any]], limit: int = 4200) -> str:
-    parts = []
+    parts: list[str] = []
     total = 0
     for result in results:
-        snippet = normalize_ws(result["text"])
-        label = f"[{result['title']} | {result['category']} | page {result['page']}] {snippet}"
+        snippet = normalize_ws(result.get("text", ""))
+        label = f"[{result.get('title', '')} | {result.get('category', '')} | page {result.get('page', '')}] {snippet}"
         if total + len(label) > limit:
             break
         parts.append(label)
@@ -24,61 +40,31 @@ def build_context(results: list[dict[str, Any]], limit: int = 4200) -> str:
     return "\n\n".join(parts)
 
 
-def grade_results(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    relevant = []
-    query_terms = {term for term in query.lower().split() if len(term) > 3}
-    for result in results:
-        text = result["text"].lower()
-        overlap = sum(1 for term in query_terms if term in text)
-        if overlap or result["score"] >= 2:
-            graded = dict(result)
-            graded["grade"] = "relevant"
-            graded["grade_reason"] = f"Matched {max(overlap, result['score'])} query/corpus signals."
-            relevant.append(graded)
-    return relevant
-
-
-def corrective_query(original_query: str, contract_text: str) -> str:
-    lowered = contract_text.lower()
-    query_lower = original_query.lower()
-    expansions = []
-    topic_phrases = [
-        "indemnification", "escrow", "assignment", "change of control",
-        "closing conditions", "employment", "intellectual property",
-        "asset acquisition", "ancillary agreements", "representations",
-        "warranties", "covenants", "termination", "governing law",
-        "working capital", "holdback", "survival", "disclosure schedule",
-        "material adverse", "regulatory", "tax", "environmental",
-    ]
-    for phrase in topic_phrases:
-        if phrase in lowered and phrase not in query_lower:
-            expansions.append(phrase)
-    if not expansions:
-        expansions = ["M&A due diligence", "acquisition agreement", "risk allocation"]
-    return f"{original_query} {' '.join(expansions[:10])}"
-
-
 def retrieve_from_corpus(query: str, top_k: int = 8) -> list[dict[str, Any]]:
     try:
-        db = get_db()
-        initial = db.retrieve(query, top_k=top_k)
-        graded = grade_results(query, initial)
-        if graded:
-            return graded
-        rewritten = f"{query} merger acquisition due diligence checklist representations warranties indemnification consents ancillary"
-        return grade_results(rewritten, db.retrieve(rewritten, top_k=top_k))
+        result = retrieve_and_grade(query, top_k=top_k)
+        return result["relevant"]
     except Exception:
-        logger.exception("retrieve_from_corpus failed for query: %s", query[:200])
+        logger.exception("retrieve_from_corpus failed: %s", query[:200])
         return []
 
 
-def analyze_contract_v2(contract_text: str, session_context: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def analyze_contract_v2(
+    contract_text: str,
+    session_context: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     base = analyze_contract(contract_text or SAMPLE_CONTRACT)
-    query = corrective_query(
-        "contract issue spotting missing clauses corrective drafting guidance",
-        contract_text or SAMPLE_CONTRACT,
-    )
-    corpus_results = retrieve_from_corpus(query, top_k=10)
+
+    query = "contract issue spotting missing clauses corrective drafting guidance"
+    try:
+        crag_result = retrieve_and_grade(query, top_k=10)
+    except Exception:
+        logger.exception("CRAG retrieval failed — using empty results")
+        crag_result = {
+            "relevant": [], "query_history": [query],
+            "retries": 0, "grader": "error", "total_candidates": 0,
+        }
+    corpus_results = crag_result["relevant"]
 
     session_chunks: list[dict[str, Any]] = []
     if session_context:
@@ -88,9 +74,17 @@ def analyze_contract_v2(contract_text: str, session_context: list[dict[str, Any]
     combined_results = corpus_results + session_chunks
     context = build_context(combined_results)
 
+    llm_analysis = generate_with_context(
+        query, corpus_results, contract_text or SAMPLE_CONTRACT,
+    )
+
     for issue in base["issues"]:
         topic_query = f"{issue['title']} {issue['why_it_matters']} {issue['corrective_action']}"
-        topical = retrieve_from_corpus(topic_query, top_k=2)
+        try:
+            topical_result = retrieve_and_grade(topic_query, top_k=2)
+            topical = topical_result["relevant"]
+        except Exception:
+            topical = []
 
         if session_chunks:
             topic_lower = topic_query.lower()
@@ -112,26 +106,54 @@ def analyze_contract_v2(contract_text: str, session_context: list[dict[str, Any]
                 for item in topical
             ]
 
-    base["summary"]["version"] = "V2 database-backed LangChain CRAG"
+            llm_enhancement = enhance_issue_with_llm(
+                issue["title"],
+                issue.get("why_it_matters", ""),
+                topical,
+            )
+            if llm_enhancement:
+                issue["llm_enhancement"] = llm_enhancement
+
+    status = pipeline_status()
+
+    base["summary"]["version"] = "V2 Corrective RAG — 2-model architecture"
     base["summary"]["corpus_chunks_used"] = len(combined_results)
     base["summary"]["session_chunks_used"] = len(session_chunks)
+    base["summary"]["crag_retries"] = crag_result["retries"]
+    base["summary"]["grader"] = crag_result["grader"]
+    base["summary"]["generator"] = llm_analysis.get("generator", "deterministic")
     base["summary"]["crag_pipeline"] = [
-        "Deposit and classify user-provided training documents in the central corpus database.",
-        "Split documents into LangChain Document chunks for retrieval.",
-        "Retrieve matching M&A corpus excerpts from the database.",
-        "Grade retrieved excerpts for relevance and rewrite the query when retrieval is weak.",
-        "Correct contract issues using the original checklist plus retrieved corpus support.",
+        "Embed user query with nomic-embed-text and retrieve top-k vectors from ChromaDB.",
+        "Grade each retrieved chunk with Llama 3.1 8B (strict JSON relevance scoring).",
+        "If no relevant chunks pass grading, rewrite the query and retry (max 2 attempts).",
+        "Pass approved chunks + contract text to Command-R7B for synthesis with citations.",
+        "Merge LLM analysis into deterministic clause map and issue list.",
     ]
+    base["summary"]["query_history"] = crag_result["query_history"]
     base["corpus_results"] = combined_results
     base["corpus_context_preview"] = context[:1800]
+
+    if llm_analysis.get("analysis"):
+        base["llm_analysis"] = llm_analysis
+
     base["architecture"] = {
-        "variation": "v2_corpus_crag",
-        "database": "PostgreSQL via DATABASE_URL when available, SQLite fallback for GitHub/local replication",
-        "pipeline_shared_with_original": ["ingestion", "classification", "chunking", "retrieval", "grading", "correction", "generation"],
+        "variation": "v2_crag_2model",
+        "grader": status["llm"]["grader_model"],
+        "generator": status["llm"]["generator_model"],
+        "embedding": status["vector_store"]["embedding"],
+        "vector_count": status["vector_store"]["vector_count"],
+        "mode": status["llm"]["mode"],
+        "database": "PostgreSQL (source of truth) + ChromaDB (vector index)",
+        "pipeline": [
+            "ChromaDB semantic retrieval with nomic-embed-text",
+            "Llama 3.1 8B relevance grading with CRAG retry loop",
+            "Command-R7B synthesis with inline citations",
+            "Deterministic clause map + regex issue detection (always runs)",
+        ],
         "security": [
-            "No third-party model API is required for the demo path.",
-            "Uploaded documents remain in the project database/local filesystem.",
-            "Only text extracted from user-deposited documents is retrieved into answers.",
+            "All models run locally via Ollama — no data leaves the machine.",
+            "Uploaded documents remain in local PostgreSQL/filesystem.",
+            "Graceful deterministic fallback when Ollama is unavailable.",
         ],
     }
     return base
@@ -139,11 +161,11 @@ def analyze_contract_v2(contract_text: str, session_context: list[dict[str, Any]
 
 def generate_agreement_v2(details: dict[str, str]) -> dict[str, Any]:
     draft = generate_agreement(details)
-    query = " ".join(str(value) for value in details.values()) or "M&A agreement drafting template"
+    query = " ".join(str(v) for v in details.values()) or "M&A agreement drafting template"
     corpus_results = retrieve_from_corpus(query, top_k=8)
     draft["corpus_results"] = corpus_results
     draft["corpus_context_preview"] = build_context(corpus_results, limit=2200)
-    draft["version"] = "V2 database-backed LangChain CRAG"
+    draft["version"] = "V2 Corrective RAG — 2-model architecture"
     return draft
 
 

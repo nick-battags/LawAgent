@@ -25,6 +25,7 @@ from scripts.ma_crag_engine import (
     retrieve,
 )
 from scripts.ma_db_crag_engine import analyze_contract_v2, generate_agreement_v2, ingest_deposited_documents
+from scripts.crag_pipeline import pipeline_status
 from scripts.edgar_fetcher import search_edgar_filings, search_and_ingest
 from scripts.dataset_fetcher import ingest_maud, ingest_cuad, dataset_summary, get_ingest_status
 
@@ -86,7 +87,7 @@ def index():
 
 def _admin_authed() -> bool:
     if not ADMIN_PIN:
-        log.warning("ADMIN_PIN not set — admin access disabled for safety. Set the ADMIN_PIN secret to enable admin features.")
+        logger.warning("ADMIN_PIN not set — admin access disabled for safety. Set the ADMIN_PIN secret to enable admin features.")
         return False
     return session.get("admin_authed") is True
 
@@ -611,6 +612,70 @@ def datasets_maud_status():
 @_require_admin
 def datasets_cuad_status():
     return jsonify(get_ingest_status("cuad"))
+
+
+def _startup_vector_sync():
+    try:
+        from scripts.vector_store import get_vector_store
+        store = get_vector_store()
+        if store.count() == 0:
+            result = store.sync_from_postgres()
+            logger.info("Startup vector sync: %s", result)
+        else:
+            logger.info("ChromaDB already has %d vectors, skipping startup sync", store.count())
+    except Exception:
+        logger.warning("Startup vector sync skipped (non-fatal): %s", traceback.format_exc())
+
+
+_sync_thread = threading.Thread(target=_startup_vector_sync, daemon=True)
+_sync_thread.start()
+
+
+@app.get("/api/v2/pipeline/status")
+def v2_pipeline_status():
+    try:
+        status = pipeline_status()
+        if "llm" in status:
+            status["llm"].pop("ollama_url", None)
+        return jsonify(status)
+    except Exception as exc:
+        logger.warning("Pipeline status failed: %s", exc)
+        return jsonify({"error": "Pipeline status unavailable"}), 500
+
+
+@app.post("/api/v2/vectors/sync")
+@_require_admin
+def v2_vector_sync():
+    try:
+        from scripts.vector_store import get_vector_store
+        result = get_vector_store().sync_from_postgres()
+        return jsonify({"status": "ok", **result})
+    except Exception as exc:
+        logger.error("Vector sync failed: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/v2/vectors/clear")
+@_require_admin
+def v2_vector_clear():
+    try:
+        from scripts.vector_store import get_vector_store
+        get_vector_store().clear()
+        return jsonify({"status": "cleared"})
+    except Exception as exc:
+        logger.error("Vector clear failed: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/v2/llm/status")
+def v2_llm_status():
+    try:
+        from scripts.llm_provider import get_llm
+        status = get_llm().model_status()
+        status.pop("ollama_url", None)
+        return jsonify(status)
+    except Exception as exc:
+        return jsonify({"ollama_available": False, "mode": "deterministic"})
 
 
 if __name__ == "__main__":

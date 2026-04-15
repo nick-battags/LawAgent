@@ -317,6 +317,53 @@ h3 {
   color: var(--accent-soft);
 }
 
+.pipeline-status {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.pipeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+
+.llm-enhancement {
+  margin: 10px 0;
+  padding: 12px 14px;
+  background: rgba(59, 130, 246, 0.06);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+}
+
+.llm-enhancement p {
+  margin: 4px 0;
+}
+
+.pipeline-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.pipeline-info-grid > div {
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+}
+
+.pipeline-info-grid strong {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 main {
   padding: 32px clamp(16px, 4vw, 36px) 48px;
 }

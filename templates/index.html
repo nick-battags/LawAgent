@@ -32,11 +32,12 @@
         <div class="pipeline-card">
           <h2>CRAG pipeline</h2>
           <ol>
-            <li><strong>Retrieve</strong> M&A guidance from the central training database.</li>
-            <li><strong>Grade</strong> retrieved excerpts and pasted text against deal coverage.</li>
-            <li><strong>Correct</strong> weak areas with database-supported clauses and follow-ups.</li>
-            <li><strong>Generate</strong> reports and first-draft agreement language.</li>
+            <li><strong>Embed &amp; Retrieve</strong> — Query embedded via nomic-embed-text; top-k vectors retrieved from ChromaDB.</li>
+            <li><strong>Grade</strong> — Llama 3.1 8B scores each chunk for relevance (strict JSON yes/no gating).</li>
+            <li><strong>Rewrite &amp; Retry</strong> — If no chunks pass, Llama rewrites the query and retries (max 2 loops).</li>
+            <li><strong>Generate</strong> — Command-R7B synthesizes approved chunks into analysis with inline citations.</li>
           </ol>
+          <div id="pipelineStatus" class="pipeline-status"></div>
         </div>
       </section>
     </header>

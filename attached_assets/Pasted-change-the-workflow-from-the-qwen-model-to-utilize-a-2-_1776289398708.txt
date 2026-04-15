@@ -1,0 +1,26 @@
+change the workflow from the qwen model to utilize a 2 - model architecture with llama 3.1 8b and command-r7b. take the prompt from below as a rough outline and use to improve the existing architecture and workflow: 1. The Starting Line: Embedding & Retrieval
+A user inputs a query: "What is the indemnification cap?"
+
+The Action: Your Python script uses the nomic-embed-text model to convert that sentence into a math vector.
+
+The Search: It pings your local ChromaDB and pulls the top k (e.g., 4) text chunks that mathematically match the query from your M&A data room.
+
+The Gatekeeper: Llama 3.1 (8B)
+ChromaDB is a mathematical search engine, not a lawyer. It might return a chunk about an "insurance cap" instead of an "indemnification cap." This is where the Corrective RAG (CRAG) loop begins.
+The Action: LangGraph loads Llama 3.1 into your GPU VRAM. It feeds Llama the user's query and the retrieved chunks.
+
+The Prompt: Llama is prompted with strict instructions: "Does this document contain the answer to the query? Output only {"score": "yes"} or {"score": "no"}."
+
+The Output: Because Llama 3.1 is highly obedient, it outputs the exact JSON needed.
+
+The Routing Logic (LangGraph Conditional Edges)
+Your Python script reads Llama's JSON output and makes a routing decision:
+If "No" (Irrelevant): The document is trashed. Llama 3.1 is temporarily asked to rewrite the user's search query (e.g., changing it to "seller liability limits"), and the system loops back to ChromaDB to try again.
+
+If "Yes" (Relevant): The document is approved. The script moves to the final generation node.
+
+The Senior Associate: Command R7B
+Once a document passes the Llama 3.1 test, Llama is unloaded from memory, and Command R7B is loaded in.
+The Action: Command R7B receives the user's original query and only the documents that Llama 3.1 verified as highly relevant.
+
+The Output: Because it is specifically trained for Retrieval-Augmented Generation, Command R7B synthesizes the dense legal text, spots the indemnification cap, and writes the final answer, automatically inserting a citation (e.g., [Source: SPA_Delaware.pdf, Page 12]) before sending it back to the user interface.

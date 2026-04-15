@@ -56,6 +56,23 @@
               <span class="stat-label">Categories</span>
               <span class="stat-value" id="statCategories">--</span>
             </div>
+            <div class="stat-card">
+              <span class="stat-label">Vectors</span>
+              <span class="stat-value" id="statVectors">--</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">LLM Mode</span>
+              <span class="stat-value" id="statLlmMode">--</span>
+            </div>
+          </div>
+          <div class="admin-card" style="margin-top:16px">
+            <h3>CRAG pipeline</h3>
+            <div id="pipelineInfo" class="pipeline-info-grid"></div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+              <button id="adminVectorSync" class="secondary dark">Sync vectors from PostgreSQL</button>
+              <button id="adminVectorClear" class="ghost">Clear vector index</button>
+            </div>
+            <div id="vectorResult" class="result-box"></div>
           </div>
           <div class="category-breakdown" id="categoryBreakdown"></div>
           <div class="doc-list" id="dashboardDocList"></div>
