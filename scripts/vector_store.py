@@ -1,7 +1,8 @@
 """ChromaDB vector store for semantic retrieval in the CRAG pipeline.
 
-Supports Ollama nomic-embed-text embeddings when available, with automatic
-fallback to ChromaDB's default embedding function (all-MiniLM-L6-v2).
+Supports Ollama nomic-embed-text embeddings with multi-endpoint failover
+(primary -> secondary -> ...), and defaults to ChromaDB's built-in embedding
+function when no Ollama endpoint is reachable.
 PostgreSQL remains the source of truth; ChromaDB syncs from it.
 """
 
@@ -14,6 +15,9 @@ import threading
 from typing import Any
 
 import chromadb
+import requests
+
+from scripts.ollama_endpoints import endpoint_label, fetch_tags, parse_ollama_base_urls
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,11 @@ class VectorStore:
     def __init__(self, persist_dir: str = "./chroma_data"):
         self.persist_dir = persist_dir
         self._lock = threading.RLock()
+        self._ollama_urls = parse_ollama_base_urls()
+        self._embed_model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        self._active_embedding_url: str | None = None
+        self._active_embedding_backend: str = "none"
+
         self.client = chromadb.PersistentClient(path=persist_dir)
         self._embedding_fn = self._resolve_embedding_fn()
         self.collection = self.client.get_or_create_collection(
@@ -47,31 +56,67 @@ class VectorStore:
             self.collection.count(),
         )
 
+    def _build_ollama_embedding_fn(self, base_url: str):
+        from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+
+        return OllamaEmbeddingFunction(
+            url=f"{base_url}/api/embeddings",
+            model_name=self._embed_model,
+        )
+
     def _resolve_embedding_fn(self):
-        ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-        embed_model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
-        try:
-            import requests
-
-            r = requests.get(f"{ollama_url}/api/tags", timeout=2)
-            if r.ok:
-                from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
-
-                self._embedding_label = f"ollama/{embed_model}"
-                logger.info("Using Ollama embedding model: %s", embed_model)
-                return OllamaEmbeddingFunction(
-                    url=f"{ollama_url}/api/embeddings",
-                    model_name=embed_model,
+        for idx, ollama_url in enumerate(self._ollama_urls):
+            try:
+                fetch_tags(ollama_url, timeout=2)
+                self._active_embedding_url = ollama_url
+                self._active_embedding_backend = endpoint_label(idx)
+                self._embedding_label = f"ollama/{self._embed_model}@{self._active_embedding_backend}"
+                logger.info(
+                    "Using Ollama embedding model %s via %s endpoint (%s)",
+                    self._embed_model,
+                    self._active_embedding_backend,
+                    ollama_url,
                 )
-        except Exception:
-            pass
+                return self._build_ollama_embedding_fn(ollama_url)
+            except requests.RequestException:
+                continue
+
+        self._active_embedding_url = None
+        self._active_embedding_backend = "none"
         self._embedding_label = "default/all-MiniLM-L6-v2"
-        logger.info("Ollama unavailable — using ChromaDB default embedding")
+        logger.info("No reachable Ollama embedding endpoints; using ChromaDB default embedding")
         return chromadb.utils.embedding_functions.DefaultEmbeddingFunction()
+
+    def _switch_embedding_endpoint(self, exclude: set[str] | None = None) -> bool:
+        exclude = exclude or set()
+        for idx, ollama_url in enumerate(self._ollama_urls):
+            if ollama_url in exclude:
+                continue
+            try:
+                fetch_tags(ollama_url, timeout=2)
+                self._active_embedding_url = ollama_url
+                self._active_embedding_backend = endpoint_label(idx)
+                self._embedding_fn = self._build_ollama_embedding_fn(ollama_url)
+                self._embedding_label = f"ollama/{self._embed_model}@{self._active_embedding_backend}"
+                self.collection = self.client.get_or_create_collection(
+                    name="lawagent_corpus",
+                    embedding_function=self._embedding_fn,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                logger.warning(
+                    "Embedding failover active: switched to %s endpoint (%s)",
+                    self._active_embedding_backend,
+                    ollama_url,
+                )
+                return True
+            except requests.RequestException:
+                continue
+        return False
 
     def add_chunks(self, chunks: list[dict[str, Any]]) -> int:
         if not chunks:
             return 0
+
         ids: list[str] = []
         documents: list[str] = []
         metadatas: list[dict[str, str]] = []
@@ -100,17 +145,25 @@ class VectorStore:
                 "deal_structure": str(chunk.get("deal_structure", "")),
             })
 
-        batch_size = 500
-        added = 0
-        with self._lock:
-            for i in range(0, len(ids), batch_size):
-                self.collection.upsert(
-                    ids=ids[i : i + batch_size],
-                    documents=documents[i : i + batch_size],
-                    metadatas=metadatas[i : i + batch_size],
-                )
-                added += len(ids[i : i + batch_size])
-        return added
+        def upsert_once() -> int:
+            batch_size = 500
+            added_local = 0
+            with self._lock:
+                for i in range(0, len(ids), batch_size):
+                    self.collection.upsert(
+                        ids=ids[i : i + batch_size],
+                        documents=documents[i : i + batch_size],
+                        metadatas=metadatas[i : i + batch_size],
+                    )
+                    added_local += len(ids[i : i + batch_size])
+            return added_local
+
+        try:
+            return upsert_once()
+        except Exception:
+            if self._active_embedding_url and self._switch_embedding_endpoint(exclude={self._active_embedding_url}):
+                return upsert_once()
+            raise
 
     def query(
         self,
@@ -118,15 +171,29 @@ class VectorStore:
         top_k: int = 4,
         category: str | None = None,
     ) -> list[dict[str, Any]]:
-        if self.collection.count() == 0:
-            return []
+        with self._lock:
+            if self.collection.count() == 0:
+                return []
+
         where = {"category": category} if category else None
-        n = min(top_k, self.collection.count())
-        results = self.collection.query(
-            query_texts=[query_text],
-            n_results=n,
-            where=where,
-        )
+
+        def query_once():
+            with self._lock:
+                n = min(top_k, self.collection.count())
+                return self.collection.query(
+                    query_texts=[query_text],
+                    n_results=n,
+                    where=where,
+                )
+
+        try:
+            results = query_once()
+        except Exception:
+            if self._active_embedding_url and self._switch_embedding_endpoint(exclude={self._active_embedding_url}):
+                results = query_once()
+            else:
+                raise
+
         output: list[dict[str, Any]] = []
         for i, doc_text in enumerate(results["documents"][0]):
             meta = results["metadatas"][0][i] if results["metadatas"] else {}
@@ -154,28 +221,37 @@ class VectorStore:
         if not chunks:
             logger.info("No chunks in PostgreSQL to sync")
             return {"synced": 0, "total": self.collection.count()}
+
         with self._lock:
             before = self.collection.count()
-            added = self.add_chunks(chunks)
+        added = self.add_chunks(chunks)
+        with self._lock:
             after = self.collection.count()
+
         logger.info(
             "Vector sync complete: %d chunks processed (before=%d, after=%d)",
-            added, before, after,
+            added,
+            before,
+            after,
         )
         return {"synced": added, "before": before, "after": after}
 
     def sync_documents(self, document_ids: list[int]) -> dict[str, Any]:
         from scripts.ma_corpus_db import get_db
 
+        with self._lock:
+            before = self.collection.count()
+
         if not document_ids:
-            return {"synced": 0, "before": self.collection.count(), "after": self.collection.count()}
+            return {"synced": 0, "before": before, "after": before}
 
         db = get_db()
         chunks = db.get_chunks_for_documents(document_ids)
+        added = self.add_chunks(chunks)
+
         with self._lock:
-            before = self.collection.count()
-            added = self.add_chunks(chunks)
             after = self.collection.count()
+
         logger.info(
             "Vector partial sync complete for docs=%s: %d chunks (before=%d, after=%d)",
             document_ids,
@@ -183,7 +259,12 @@ class VectorStore:
             before,
             after,
         )
-        return {"synced": added, "before": before, "after": after, "document_ids": document_ids}
+        return {
+            "synced": added,
+            "before": before,
+            "after": after,
+            "document_ids": document_ids,
+        }
 
     def remove_document(self, document_id: int) -> int:
         with self._lock:
@@ -209,8 +290,12 @@ class VectorStore:
             return self.collection.count()
 
     def status(self) -> dict[str, Any]:
+        with self._lock:
+            vector_count = self.collection.count()
         return {
-            "vector_count": self.collection.count(),
+            "vector_count": vector_count,
             "embedding": self._embedding_label,
+            "embedding_backend": self._active_embedding_backend,
+            "embedding_urls_configured": len(self._ollama_urls),
             "persist_dir": self.persist_dir,
         }

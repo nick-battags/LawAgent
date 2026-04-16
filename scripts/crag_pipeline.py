@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 MAX_CRAG_RETRIES = 2
 RETRIEVAL_TOP_K = 4
 VALID_RUNTIME_MODES = {"auto", "llm", "deterministic"}
+_runtime_lock = threading.RLock()
+_forced_runtime_mode: str | None = None
 
 
 def _normalize_mode(mode: str | None) -> str | None:
@@ -34,7 +37,34 @@ def _allow_mode_override() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def get_forced_runtime_mode() -> str | None:
+    with _runtime_lock:
+        return _forced_runtime_mode
+
+
+def set_forced_runtime_mode(mode: str | None) -> str | None:
+    normalized = _normalize_mode(mode)
+    with _runtime_lock:
+        global _forced_runtime_mode
+        _forced_runtime_mode = normalized
+        return _forced_runtime_mode
+
+
+def runtime_control_status() -> dict[str, Any]:
+    forced = get_forced_runtime_mode()
+    return {
+        "forced_mode": forced,
+        "configured_mode": _configured_mode(),
+        "effective_mode": forced or _configured_mode(),
+        "override_enabled": _allow_mode_override(),
+        "valid_modes": sorted(VALID_RUNTIME_MODES),
+    }
+
+
 def resolve_runtime_mode(requested_mode: str | None = None) -> str:
+    forced = get_forced_runtime_mode()
+    if forced:
+        return forced
     configured = _configured_mode()
     requested = _normalize_mode(requested_mode)
     if requested and _allow_mode_override():
@@ -94,7 +124,7 @@ def retrieve_and_grade(
                 "query_history": [query],
                 "retries": 0,
                 "grader": "deterministic (LLM connection lost)",
-                "mode": "auto",
+                "mode": runtime_mode,
                 "total_candidates": len(candidates),
             }
         if result.get("score") == "yes":
@@ -127,7 +157,7 @@ def retrieve_and_grade(
                     "query_history": query_history,
                     "retries": retries,
                     "grader": "deterministic (LLM connection lost)",
-                    "mode": "auto",
+                    "mode": runtime_mode,
                     "total_candidates": len(candidates),
                 }
             if result.get("score") == "yes":
@@ -212,6 +242,7 @@ def pipeline_status() -> dict[str, Any]:
         "max_retries": MAX_CRAG_RETRIES,
         "retrieval_top_k": RETRIEVAL_TOP_K,
         "runtime_mode": _configured_mode(),
+        "forced_runtime_mode": get_forced_runtime_mode(),
         "runtime_mode_override_enabled": _allow_mode_override(),
     }
 

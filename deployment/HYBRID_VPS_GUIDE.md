@@ -109,6 +109,7 @@ Edit `.env.vps`:
 - `FLASK_SECRET_KEY=...`
 - `POSTGRES_PASSWORD=...`
 - `OLLAMA_BASE_URL=http://<home_tailscale_ip>:11434`
+- Optional app-level failover: `OLLAMA_BASE_URLS=http://<new_laptop_ip>:11434,http://<old_laptop_ip>:11434`
 - Leave `LAWAGENT_RUNTIME_MODE=auto` initially.
 
 ### 7.3 Start stack
@@ -135,8 +136,20 @@ curl -f https://lawagent.yourdomain.com/api/v2/llm/status
 - `deterministic`: always skip Ollama.
 
 Frontend selector on analyzer panel sends mode for V2 analysis/template runs.
+Admin users can globally force mode from Backend Management -> Dashboard -> Runtime Control.
+This is protected by `ADMIN_PIN` login and overrides per-request runtime selections.
 
-## 8.1) Automatic Vector Sync
+### 8.1) LLM fail-fast backoff
+
+When an endpoint is unhealthy (timeouts/model errors), app-level backoff is applied:
+
+- endpoint backoff (`LLM_ENDPOINT_BACKOFF_SEC`, default `30`)
+- global cooldown when all endpoints fail (`LLM_FAILURE_COOLDOWN_SEC`, default `45`)
+- longer cooldown for memory errors (`LLM_MEMORY_COOLDOWN_SEC`, default `300`)
+
+These values are configurable in `.env.vps`.
+
+## 8.2) Automatic Vector Sync
 
 Vector sync now runs automatically after corpus-changing operations:
 

@@ -194,3 +194,5 @@ Recommended production architecture:
 2. Home always-on machine hosts Ollama (`llama3.1:8b`, `command-r:7b`, `nomic-embed-text`).
 3. App uses `LAWAGENT_RUNTIME_MODE=auto` so deterministic fallback remains available when Ollama is unreachable.
 4. Vector sync is automatic after corpus-changing operations (uploads, deposit ingest, MAUD/CUAD ingestion, EDGAR ingest, tag updates, deletes).
+5. Admin PIN-protected runtime control lets you globally force `auto`, `llm`, or `deterministic` mode from `/admin`.
+6. Optional endpoint failover is available with `OLLAMA_BASE_URLS=primary,secondary`.

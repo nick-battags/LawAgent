@@ -73,6 +73,23 @@
               <button id="adminVectorClear" class="ghost">Clear vector index</button>
             </div>
             <div id="vectorResult" class="result-box"></div>
+            <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+              <h4 style="margin:0 0 8px">Runtime Control</h4>
+              <p class="muted" style="margin:0 0 8px">Force model behavior globally. Use deterministic mode to hard-disable LLM inference.</p>
+              <div class="inline-fields" style="align-items:flex-end">
+                <label>
+                  Forced runtime mode
+                  <select id="adminRuntimeMode">
+                    <option value="configured">Use configured default</option>
+                    <option value="auto">Auto (LLM with deterministic fallback)</option>
+                    <option value="llm">LLM only</option>
+                    <option value="deterministic">Deterministic only</option>
+                  </select>
+                </label>
+                <button id="adminRuntimeApply" class="primary">Apply mode</button>
+              </div>
+              <div id="runtimeResult" class="result-box"></div>
+            </div>
           </div>
           <div class="category-breakdown" id="categoryBreakdown"></div>
           <div class="doc-list" id="dashboardDocList"></div>

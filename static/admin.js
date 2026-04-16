@@ -529,17 +529,43 @@ async function loadPipelineInfo() {
     document.getElementById("statLlmMode").textContent = llm.mode === "llm" ? "LLM" : "Deterministic";
     const info = document.getElementById("pipelineInfo");
     if (info) {
+      const backoff = llm.endpoint_backoff_seconds || {};
+      const backoffText = Object.keys(backoff).length
+        ? Object.entries(backoff).map(([label, sec]) => `${label}: ${sec}s`).join(", ")
+        : "none";
       info.innerHTML = `
-        <div><strong>Ollama</strong><br><span class="muted">${llm.ollama_available ? "Connected" : "Not available"} (${escapeHtml(llm.ollama_url || "")})</span></div>
+        <div><strong>Ollama</strong><br><span class="muted">${llm.ollama_available ? "Connected" : "Not available"}</span></div>
+        <div><strong>Active backend</strong><br><span class="muted">${escapeHtml(llm.active_backend || "none")}</span></div>
+        <div><strong>Failover</strong><br><span class="muted">${llm.failover_enabled ? "Enabled" : "Disabled"} (${llm.ollama_urls_configured || 1} endpoint${(llm.ollama_urls_configured || 1) > 1 ? "s" : ""})</span></div>
         <div><strong>Grader</strong><br><span class="muted">${escapeHtml(llm.grader_model || "n/a")}</span></div>
         <div><strong>Generator</strong><br><span class="muted">${escapeHtml(llm.generator_model || "n/a")}</span></div>
         <div><strong>Embedding</strong><br><span class="muted">${escapeHtml(vs.embedding || "default")}</span></div>
-        <div><strong>Vectors</strong><br><span class="muted">${vs.vector_count || 0}</span></div>
-        <div><strong>Mode</strong><br><span class="muted">${llm.mode === "llm" ? "LLM active" : "Deterministic fallback"}</span></div>`;
+        <div><strong>Backoff</strong><br><span class="muted">${escapeHtml(backoffText)}</span></div>
+        <div><strong>Cooldown</strong><br><span class="muted">${llm.cooldown_active ? `${llm.cooldown_seconds_remaining || 0}s` : "none"}</span></div>
+        <div><strong>Mode</strong><br><span class="muted">${llm.mode === "llm" ? "LLM active" : "Deterministic fallback"}</span></div>
+        <div><strong>Last error</strong><br><span class="muted">${escapeHtml(llm.last_error || "none")}</span></div>`;
     }
   } catch {
     document.getElementById("statVectors").textContent = "?";
     document.getElementById("statLlmMode").textContent = "?";
+  }
+}
+
+async function loadRuntimeControl() {
+  const select = document.getElementById("adminRuntimeMode");
+  const result = document.getElementById("runtimeResult");
+  if (!select || !result) return;
+  try {
+    const status = await getJson("/api/v2/runtime/status");
+    select.value = status.forced_mode || "configured";
+    result.innerHTML = `
+      <span class="muted">
+        Effective mode: <strong>${escapeHtml(status.effective_mode || "auto")}</strong>
+        · Configured default: ${escapeHtml(status.configured_mode || "auto")}
+      </span>
+    `;
+  } catch (err) {
+    result.innerHTML = `<span style="color:var(--red)">Runtime status unavailable: ${escapeHtml(err.message)}</span>`;
   }
 }
 
@@ -577,6 +603,34 @@ document.getElementById("adminVectorClear").addEventListener("click", async () =
   }
 });
 
+document.getElementById("adminRuntimeApply").addEventListener("click", async () => {
+  const btn = document.getElementById("adminRuntimeApply");
+  const select = document.getElementById("adminRuntimeMode");
+  const result = document.getElementById("runtimeResult");
+  btn.disabled = true;
+  btn.textContent = "Applying...";
+  try {
+    const status = await getJson("/api/v2/runtime/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: select.value }),
+    });
+    result.innerHTML = `
+      <span style="color:var(--green)">
+        Runtime mode updated. Effective mode: <strong>${escapeHtml(status.effective_mode || "auto")}</strong>
+      </span>
+    `;
+    loadPipelineInfo();
+    loadRuntimeControl();
+  } catch (err) {
+    result.innerHTML = `<span style="color:var(--red)">Update failed: ${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Apply mode";
+  }
+});
+
 refreshDashboard();
 refreshDatasetStats();
 loadPipelineInfo();
+loadRuntimeControl();

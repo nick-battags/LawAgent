@@ -27,6 +27,7 @@ from scripts.ma_crag_engine import (
 )
 from scripts.ma_db_crag_engine import analyze_contract_v2, generate_agreement_v2, ingest_deposited_documents
 from scripts.crag_pipeline import pipeline_status
+from scripts.crag_pipeline import runtime_control_status, set_forced_runtime_mode
 from scripts.edgar_fetcher import search_edgar_filings, search_and_ingest
 from scripts.dataset_fetcher import ingest_maud, ingest_cuad, dataset_summary, get_ingest_status
 
@@ -119,7 +120,7 @@ def index():
 
 def _admin_authed() -> bool:
     if not ADMIN_PIN:
-        logger.warning("ADMIN_PIN not set — admin access disabled for safety. Set the ADMIN_PIN secret to enable admin features.")
+        logger.warning("ADMIN_PIN not set - admin access disabled for safety. Set ADMIN_PIN to enable admin features.")
         return False
     return session.get("admin_authed") is True
 
@@ -714,6 +715,29 @@ def v2_pipeline_status():
     except Exception as exc:
         logger.warning("Pipeline status failed: %s", exc)
         return jsonify({"error": "Pipeline status unavailable"}), 500
+
+
+@app.get("/api/v2/runtime/status")
+@_require_admin
+def v2_runtime_status():
+    return jsonify(runtime_control_status())
+
+
+@app.post("/api/v2/runtime/mode")
+@_require_admin
+def v2_runtime_mode():
+    payload = request.get_json(silent=True) or {}
+    requested_mode = str(payload.get("mode", "")).strip().lower()
+    if requested_mode in {"", "clear", "configured", "unset"}:
+        forced = set_forced_runtime_mode(None)
+    elif requested_mode in {"auto", "llm", "deterministic"}:
+        forced = set_forced_runtime_mode(requested_mode)
+    else:
+        return jsonify({"error": "mode must be one of: auto, llm, deterministic, clear"}), 400
+
+    status = runtime_control_status()
+    status["forced_mode"] = forced
+    return jsonify(status)
 
 
 @app.post("/api/v2/vectors/sync")
