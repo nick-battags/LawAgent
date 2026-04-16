@@ -8,6 +8,7 @@ ChromaDB provides vector retrieval; PostgreSQL remains the source of truth.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from scripts.ma_corpus_db import get_db, normalize_ws
@@ -25,6 +26,7 @@ from scripts.crag_pipeline import (
 )
 
 logger = logging.getLogger(__name__)
+PER_ISSUE_LLM_ENHANCEMENT = os.environ.get("LAWAGENT_ENABLE_PER_ISSUE_LLM_ENHANCEMENT", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def build_context(results: list[dict[str, Any]], limit: int = 4200) -> str:
@@ -95,12 +97,16 @@ def analyze_contract_v2(
         mode=runtime_mode,
     )
 
+    # Keep request latency bounded in auto mode: use deterministic grading for
+    # per-issue support retrieval while still allowing top-level generation.
+    per_issue_mode = "deterministic" if effective_mode == "auto" else runtime_mode
+
     for issue in base["issues"]:
         topic_query = (
             f"{issue['title']} {issue['why_it_matters']} {issue['corrective_action']}"
         )
         try:
-            topical_result = retrieve_and_grade(topic_query, top_k=2, mode=runtime_mode)
+            topical_result = retrieve_and_grade(topic_query, top_k=2, mode=per_issue_mode)
             topical = topical_result["relevant"]
         except Exception:
             topical = []
@@ -125,14 +131,15 @@ def analyze_contract_v2(
                 for item in topical
             ]
 
-            llm_enhancement = enhance_issue_with_llm(
-                issue["title"],
-                issue.get("why_it_matters", ""),
-                topical,
-                mode=runtime_mode,
-            )
-            if llm_enhancement:
-                issue["llm_enhancement"] = llm_enhancement
+            if PER_ISSUE_LLM_ENHANCEMENT:
+                llm_enhancement = enhance_issue_with_llm(
+                    issue["title"],
+                    issue.get("why_it_matters", ""),
+                    topical,
+                    mode=runtime_mode,
+                )
+                if llm_enhancement:
+                    issue["llm_enhancement"] = llm_enhancement
 
     status = pipeline_status()
 

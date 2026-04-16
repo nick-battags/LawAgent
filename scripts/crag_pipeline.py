@@ -1,7 +1,7 @@
 """Corrective RAG pipeline with 2-model architecture.
 
-Flow: Retrieve (ChromaDB) → Grade (Llama 3.1) → Rewrite query if fail →
-Retry (max 2) → Generate (Command-R7B with citations).
+Flow: Retrieve (ChromaDB) -> Grade (Llama 3.1) -> Rewrite query if fail ->
+Retry (max 2) -> Generate (Command-R7B with citations).
 Falls back to deterministic keyword grading when Ollama is unavailable.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 MAX_CRAG_RETRIES = 2
 RETRIEVAL_TOP_K = 4
 VALID_RUNTIME_MODES = {"auto", "llm", "deterministic"}
+CRAG_MAX_GRADING_SECONDS = max(5, int(os.environ.get("CRAG_MAX_GRADING_SECONDS", "35")))
 _runtime_lock = threading.RLock()
 _forced_runtime_mode: str | None = None
 
@@ -88,7 +90,6 @@ def retrieve_and_grade(
     use_llm = runtime_mode != "deterministic" and llm_available
 
     candidates = store.query(query, top_k=top_k, category=category)
-
     if not candidates:
         from scripts.ma_corpus_db import get_db
 
@@ -114,9 +115,24 @@ def retrieve_and_grade(
             "total_candidates": len(candidates),
         }
 
+    deadline = time.time() + CRAG_MAX_GRADING_SECONDS if runtime_mode == "auto" else None
+
+    def budget_exceeded() -> bool:
+        return deadline is not None and time.time() > deadline
+
     relevant: list[dict[str, Any]] = []
     irrelevant_snippets: list[str] = []
     for doc in candidates:
+        if budget_exceeded():
+            logger.warning("CRAG grading budget exceeded for query '%s'; using deterministic fallback", query[:80])
+            return {
+                "relevant": _keyword_grade(query, candidates),
+                "query_history": [query],
+                "retries": 0,
+                "grader": "deterministic (LLM grading budget exceeded)",
+                "mode": runtime_mode,
+                "total_candidates": len(candidates),
+            }
         result = llm.grade_document(query, doc.get("text", ""))
         if result.get("score") == "fallback":
             return {
@@ -137,10 +153,21 @@ def retrieve_and_grade(
     query_history = [query]
     retries = 0
     while not relevant and retries < MAX_CRAG_RETRIES:
+        if budget_exceeded():
+            logger.warning("CRAG rewrite budget exceeded for query '%s'; using deterministic fallback", query[:80])
+            return {
+                "relevant": _keyword_grade(query, candidates),
+                "query_history": query_history,
+                "retries": retries,
+                "grader": "deterministic (LLM rewrite budget exceeded)",
+                "mode": runtime_mode,
+                "total_candidates": len(candidates),
+            }
+
         failed_ctx = " | ".join(irrelevant_snippets[:3])
         rewritten = llm.rewrite_query(query, failed_ctx)
         query_history.append(rewritten)
-        logger.info("CRAG retry %d: rewritten → '%s'", retries + 1, rewritten[:120])
+        logger.info("CRAG retry %d: rewritten -> '%s'", retries + 1, rewritten[:120])
 
         candidates = store.query(rewritten, top_k=top_k, category=category)
         if not candidates:
@@ -150,6 +177,16 @@ def retrieve_and_grade(
 
         irrelevant_snippets = []
         for doc in candidates:
+            if budget_exceeded():
+                logger.warning("CRAG grading budget exceeded after rewrite for query '%s'; using deterministic fallback", query[:80])
+                return {
+                    "relevant": _keyword_grade(query, candidates),
+                    "query_history": query_history,
+                    "retries": retries,
+                    "grader": "deterministic (LLM grading budget exceeded)",
+                    "mode": runtime_mode,
+                    "total_candidates": len(candidates),
+                }
             result = llm.grade_document(query, doc.get("text", ""))
             if result.get("score") == "fallback":
                 return {
@@ -259,8 +296,6 @@ def _keyword_grade(
         if overlap or result.get("score", 0) >= 2:
             graded = dict(result)
             graded["grade"] = "relevant"
-            graded["grade_reason"] = (
-                f"Keyword match: {overlap} terms (deterministic fallback)"
-            )
+            graded["grade_reason"] = f"Keyword match: {overlap} terms (deterministic fallback)"
             relevant.append(graded)
     return relevant

@@ -33,6 +33,8 @@ Set-EnvDefault -Name "EMBEDDING_MODEL" -Value "nomic-embed-text"
 Set-EnvDefault -Name "OLLAMA_EMBED_TIMEOUT_SEC" -Value "180"
 Set-EnvDefault -Name "VECTOR_UPSERT_BATCH_SIZE" -Value "64"
 Set-EnvDefault -Name "VECTOR_UPSERT_MIN_BATCH_SIZE" -Value "8"
+Set-EnvDefault -Name "CRAG_MAX_GRADING_SECONDS" -Value "35"
+Set-EnvDefault -Name "LAWAGENT_ENABLE_PER_ISSUE_LLM_ENHANCEMENT" -Value "false"
 
 $primary = "http://127.0.0.1:11434"
 if ($LocalOnly) {
