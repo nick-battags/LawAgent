@@ -40,6 +40,9 @@ class VectorStore:
         self._lock = threading.RLock()
         self._ollama_urls = parse_ollama_base_urls()
         self._embed_model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        self._embed_timeout = int(os.environ.get("OLLAMA_EMBED_TIMEOUT_SEC", "180"))
+        self._upsert_batch_size = max(1, int(os.environ.get("VECTOR_UPSERT_BATCH_SIZE", "64")))
+        self._upsert_min_batch_size = max(1, int(os.environ.get("VECTOR_UPSERT_MIN_BATCH_SIZE", "8")))
         self._active_embedding_url: str | None = None
         self._active_embedding_backend: str = "none"
 
@@ -62,7 +65,21 @@ class VectorStore:
         return OllamaEmbeddingFunction(
             url=f"{base_url}/api/embeddings",
             model_name=self._embed_model,
+            timeout=self._embed_timeout,
         )
+
+    @staticmethod
+    def _looks_like_timeout(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        timeout_markers = (
+            "timed out",
+            "readtimeout",
+            "read timeout",
+            "connecttimeout",
+            "connect timeout",
+            "time out",
+        )
+        return any(marker in msg for marker in timeout_markers)
 
     def _resolve_embedding_fn(self):
         for idx, ollama_url in enumerate(self._ollama_urls):
@@ -146,16 +163,30 @@ class VectorStore:
             })
 
         def upsert_once() -> int:
-            batch_size = 500
+            batch_size = max(self._upsert_batch_size, self._upsert_min_batch_size)
             added_local = 0
-            with self._lock:
-                for i in range(0, len(ids), batch_size):
-                    self.collection.upsert(
-                        ids=ids[i : i + batch_size],
-                        documents=documents[i : i + batch_size],
-                        metadatas=metadatas[i : i + batch_size],
-                    )
-                    added_local += len(ids[i : i + batch_size])
+            i = 0
+            while i < len(ids):
+                current = min(batch_size, len(ids) - i)
+                try:
+                    with self._lock:
+                        self.collection.upsert(
+                            ids=ids[i : i + current],
+                            documents=documents[i : i + current],
+                            metadatas=metadatas[i : i + current],
+                        )
+                    added_local += current
+                    i += current
+                except Exception as exc:
+                    if self._looks_like_timeout(exc) and current > self._upsert_min_batch_size:
+                        batch_size = max(self._upsert_min_batch_size, current // 2)
+                        logger.warning(
+                            "Vector upsert timeout at batch=%d; reducing batch size to %d and retrying",
+                            current,
+                            batch_size,
+                        )
+                        continue
+                    raise
             return added_local
 
         try:

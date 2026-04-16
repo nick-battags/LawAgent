@@ -569,21 +569,66 @@ async function loadRuntimeControl() {
   }
 }
 
-document.getElementById("adminVectorSync").addEventListener("click", async () => {
+let vectorSyncPoll = null;
+
+function stopVectorSyncPoll() {
+  if (vectorSyncPoll) {
+    clearInterval(vectorSyncPoll);
+    vectorSyncPoll = null;
+  }
+}
+
+async function refreshVectorSyncStatus() {
   const btn = document.getElementById("adminVectorSync");
   const result = document.getElementById("vectorResult");
-  btn.disabled = true;
-  btn.textContent = "Syncing...";
-  result.innerHTML = "Syncing PostgreSQL chunks to ChromaDB vector index...";
+  const state = await getJson("/api/v2/vectors/sync/status");
+
+  if (state.running) {
+    btn.disabled = true;
+    btn.textContent = "Syncing...";
+    const scope = state.last_scope === "documents" ? "selected documents" : "full corpus";
+    result.innerHTML = `<span class="muted">Vector sync in progress (${escapeHtml(scope)}). Started at ${escapeHtml(state.last_started || "n/a")}.</span>`;
+    return state;
+  }
+
+  btn.disabled = false;
+  btn.textContent = "Sync vectors from PostgreSQL";
+  if (state.last_error) {
+    result.innerHTML = `<span style="color:var(--red)">Last sync failed. Check logs for details.</span>`;
+  } else if (state.last_result && typeof state.last_result === "object") {
+    const synced = state.last_result.synced || 0;
+    const before = state.last_result.before || 0;
+    const after = state.last_result.after || 0;
+    result.innerHTML = `<span style="color:var(--green)">Last sync complete: ${synced} chunks processed (${before} → ${after} vectors)</span>`;
+  }
+  return state;
+}
+
+function startVectorSyncPoll() {
+  if (vectorSyncPoll) return;
+  vectorSyncPoll = setInterval(async () => {
+    try {
+      const state = await refreshVectorSyncStatus();
+      if (!state.running) {
+        stopVectorSyncPoll();
+        loadPipelineInfo();
+        refreshDashboard();
+      }
+    } catch {
+      stopVectorSyncPoll();
+    }
+  }, 2000);
+}
+
+document.getElementById("adminVectorSync").addEventListener("click", async () => {
+  const result = document.getElementById("vectorResult");
+  result.innerHTML = "Starting vector sync...";
   try {
-    const data = await getJson("/api/v2/vectors/sync", { method: "POST" });
-    result.innerHTML = `<span style="color:var(--green)">Sync complete: ${data.synced || 0} chunks processed (${data.before || 0} → ${data.after || 0} vectors)</span>`;
-    loadPipelineInfo();
+    await getJson("/api/v2/vectors/sync", { method: "POST" });
+    await refreshVectorSyncStatus();
+    startVectorSyncPoll();
   } catch (err) {
-    result.innerHTML = `<span style="color:var(--red)">Sync failed: ${escapeHtml(err.message)}</span>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Sync vectors from PostgreSQL";
+    result.innerHTML = `<span style="color:var(--red)">Sync failed to start: ${escapeHtml(err.message)}</span>`;
   }
 });
 
@@ -634,3 +679,4 @@ refreshDashboard();
 refreshDatasetStats();
 loadPipelineInfo();
 loadRuntimeControl();
+refreshVectorSyncStatus().catch(() => {});

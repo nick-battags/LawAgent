@@ -6,13 +6,14 @@ import re
 import tempfile
 import threading
 import traceback
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import secrets as _secrets
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -50,24 +51,108 @@ _session_lock = threading.Lock()
 MAX_SESSIONS = 50
 MAX_SESSION_DOCS = 10
 DEFAULT_EDGAR_END_DATE = date.today().isoformat()
+_vector_sync_lock = threading.RLock()
+_vector_sync_state: dict[str, Any] = {
+    "running": False,
+    "last_reason": "",
+    "last_trigger": "",
+    "last_started": "",
+    "last_finished": "",
+    "last_scope": "",
+    "last_document_ids": [],
+    "last_result": None,
+    "last_error": "",
+    "pending_full": False,
+    "pending_document_ids": [],
+}
 
 
-def _trigger_vector_sync(reason: str, document_ids: list[int] | None = None) -> None:
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _vector_sync_snapshot() -> dict[str, Any]:
+    with _vector_sync_lock:
+        snap = dict(_vector_sync_state)
+    return snap
+
+
+def _start_vector_sync(
+    reason: str,
+    document_ids: list[int] | None = None,
+    trigger: str = "auto",
+) -> dict[str, Any]:
+    normalized_ids = sorted(set(document_ids or []))
+    with _vector_sync_lock:
+        if _vector_sync_state["running"]:
+            if normalized_ids:
+                pending = set(_vector_sync_state.get("pending_document_ids") or [])
+                pending.update(normalized_ids)
+                _vector_sync_state["pending_document_ids"] = sorted(pending)
+            else:
+                _vector_sync_state["pending_full"] = True
+            return {"status": "running", **_vector_sync_snapshot()}
+
+        _vector_sync_state["running"] = True
+        _vector_sync_state["last_reason"] = reason
+        _vector_sync_state["last_trigger"] = trigger
+        _vector_sync_state["last_started"] = _utc_now_iso()
+        _vector_sync_state["last_finished"] = ""
+        _vector_sync_state["last_scope"] = "documents" if normalized_ids else "full"
+        _vector_sync_state["last_document_ids"] = normalized_ids
+        _vector_sync_state["last_error"] = ""
+        _vector_sync_state["last_result"] = None
+
     def run_sync() -> None:
         try:
             from scripts.vector_store import get_vector_store
 
             store = get_vector_store()
-            if document_ids:
-                result = store.sync_documents(document_ids)
+            if normalized_ids:
+                result = store.sync_documents(normalized_ids)
             else:
                 result = store.sync_from_postgres()
-            logger.info("Auto vector sync complete (%s): %s", reason, result)
+            logger.info("Vector sync complete (%s/%s): %s", trigger, reason, result)
+            with _vector_sync_lock:
+                _vector_sync_state["last_result"] = result
+                _vector_sync_state["last_error"] = ""
         except Exception:
-            logger.warning("Auto vector sync failed (%s): %s", reason, traceback.format_exc())
+            err = traceback.format_exc()
+            logger.warning("Vector sync failed (%s/%s): %s", trigger, reason, err)
+            with _vector_sync_lock:
+                _vector_sync_state["last_error"] = err
+        finally:
+            next_ids: list[int] | None = None
+            should_run_follow_up = False
+            with _vector_sync_lock:
+                _vector_sync_state["running"] = False
+                _vector_sync_state["last_finished"] = _utc_now_iso()
+                pending_full = bool(_vector_sync_state.get("pending_full"))
+                pending_ids = sorted(set(_vector_sync_state.get("pending_document_ids") or []))
+                _vector_sync_state["pending_full"] = False
+                _vector_sync_state["pending_document_ids"] = []
+                if pending_full:
+                    should_run_follow_up = True
+                    next_ids = None
+                elif pending_ids:
+                    should_run_follow_up = True
+                    next_ids = pending_ids
+            if should_run_follow_up:
+                _start_vector_sync("queued follow-up sync", document_ids=next_ids, trigger="queued")
 
     thread = threading.Thread(target=run_sync, daemon=True)
     thread.start()
+    return {"status": "started", **_vector_sync_snapshot()}
+
+
+def _trigger_vector_sync(reason: str, document_ids: list[int] | None = None) -> None:
+    state = _start_vector_sync(reason, document_ids=document_ids, trigger="auto")
+    if state.get("status") == "running":
+        logger.info(
+            "Vector sync already running; queued request (%s, doc_ids=%s)",
+            reason,
+            document_ids or [],
+        )
 
 
 def _extract_document_ids(items: list[dict[str, Any]]) -> list[int]:
@@ -102,6 +187,8 @@ def _add_session_doc(session_id: str, doc: dict[str, Any]) -> bool:
 
 @app.errorhandler(Exception)
 def handle_exception(exc):
+    if isinstance(exc, HTTPException):
+        return jsonify({"error": exc.description}), exc.code
     logger.error("Unhandled exception on %s %s:\n%s", request.method, request.path, traceback.format_exc())
     return jsonify({"error": "Internal server error. Check logs for details."}), 500
 
@@ -703,8 +790,8 @@ def _startup_vector_sync():
         from scripts.vector_store import get_vector_store
         store = get_vector_store()
         if store.count() == 0:
-            result = store.sync_from_postgres()
-            logger.info("Startup vector sync: %s", result)
+            state = _start_vector_sync("startup sync", trigger="startup")
+            logger.info("Startup vector sync triggered: %s", state.get("status"))
         else:
             logger.info("ChromaDB already has %d vectors, skipping startup sync", store.count())
     except Exception:
@@ -754,12 +841,18 @@ def v2_runtime_mode():
 @_require_admin
 def v2_vector_sync():
     try:
-        from scripts.vector_store import get_vector_store
-        result = get_vector_store().sync_from_postgres()
-        return jsonify({"status": "ok", **result})
+        state = _start_vector_sync("manual full sync", trigger="manual")
+        code = 202 if state.get("status") in {"started", "running"} else 200
+        return jsonify(state), code
     except Exception as exc:
         logger.error("Vector sync failed: %s", exc)
         return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/v2/vectors/sync/status")
+@_require_admin
+def v2_vector_sync_status():
+    return jsonify(_vector_sync_snapshot())
 
 
 @app.post("/api/v2/vectors/clear")

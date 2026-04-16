@@ -12,6 +12,7 @@ instance/
 # Local vector database and test corpus
 chroma_db/*
 !chroma_db/.gitkeep
+chroma_data/
 data/*
 !data/.gitkeep
 outputs/*
