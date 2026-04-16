@@ -255,7 +255,15 @@ def v2_upload_document():
             continue
         target = UPLOAD_DIR / filename
         uploaded.save(target)
-        result = get_db().upsert_document(target, tag_overrides=tag_overrides or None)
+        try:
+            result = get_db().upsert_document(target, tag_overrides=tag_overrides or None)
+        except Exception:
+            logger.warning("Upload ingestion failed for %s: %s", filename, traceback.format_exc())
+            errors.append({"file": filename, "error": "Unexpected ingestion error. Check server logs."})
+            continue
+        if result.get("status") == "error":
+            errors.append({"file": filename, "error": result.get("error", result.get("reason", "Ingestion failed"))})
+            continue
         results.append(result)
 
     changed_ids = _extract_document_ids(
@@ -349,7 +357,6 @@ def session_upload():
         full_text = "\n".join(doc.page_content for doc in lc_docs)
         if not full_text or len(full_text.strip()) < 50:
             return jsonify({"error": "Could not extract enough text from the file."}), 400
-
         classification = classify_document(filename, full_text)
         category = classification["category"]
         doc_type = classification["document_type"]
@@ -378,6 +385,9 @@ def session_upload():
         if not _add_session_doc(session_id, doc_info):
             return jsonify({"error": f"Session document limit reached ({MAX_SESSION_DOCS} max). Remove documents or start a new session."}), 400
         return jsonify(doc_info)
+    except Exception as exc:
+        logger.warning("Session upload parse failed for %s: %s", filename, traceback.format_exc())
+        return jsonify({"error": f"Failed to parse document: {exc}"}), 400
     finally:
         tmp_path.unlink(missing_ok=True)
 

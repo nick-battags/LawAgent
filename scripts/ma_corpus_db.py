@@ -307,11 +307,22 @@ class CorpusDatabase:
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             return {"status": "skipped", "reason": "unsupported_file", "path": str(path)}
 
-        checksum = file_checksum(path)
-        extracted = extract_text(path)
-        full_text = "\n\n".join(doc.page_content for doc in extracted)
+        try:
+            checksum = file_checksum(path)
+            extracted = extract_text(path)
+            full_text = "\n\n".join(doc.page_content for doc in extracted)
+        except Exception as exc:
+            logger.warning("Failed to parse document %s: %s", path, exc, exc_info=True)
+            return {
+                "status": "error",
+                "reason": "parse_failed",
+                "path": str(path),
+                "title": path.stem,
+                "error": str(exc),
+            }
+
         if not full_text.strip():
-            return {"status": "skipped", "reason": "no_text_extracted", "path": str(path)}
+            return {"status": "skipped", "reason": "no_text_extracted", "path": str(path), "title": path.stem}
 
         classification = classify_document(path.stem, full_text, folder_hint=folder_hint)
         source_system = detect_source_system(full_text, path)
@@ -338,83 +349,93 @@ class CorpusDatabase:
                 if len(text) >= 80:
                     chunks.append({"text": text, "page": int(split.metadata.get("page", 1) or 1)})
 
-        with self.connect() as connection:
-            existing = self._fetch_one(connection, "SELECT id, checksum, metadata FROM lawagent_documents WHERE source_path = %s", (str(path),))
-            if existing and existing["checksum"] == checksum:
-                old_meta = existing.get("metadata") or {}
-                if isinstance(old_meta, str):
-                    try:
-                        old_meta = json.loads(old_meta)
-                    except (json.JSONDecodeError, TypeError):
-                        old_meta = {}
-                tags_changed = any(old_meta.get(k) != metadata.get(k) for k in ("jurisdiction", "deal_stance", "deal_structure"))
-                if tags_changed:
-                    if self.backend == "postgres":
-                        self._execute(connection, "UPDATE lawagent_documents SET metadata = %s::jsonb WHERE id = %s", (json.dumps(metadata), existing["id"]))
-                    else:
-                        self._execute(connection, "UPDATE lawagent_documents SET metadata = %s WHERE id = %s", (json.dumps(metadata), existing["id"]))
-                    connection.commit()
-                    return {
-                        "status": "tags_updated", "document_id": existing["id"], "path": str(path),
-                        "title": path.stem, "category": classification["category"],
-                        "document_type": classification["document_type"], "source_system": source_system,
-                        "chunk_count": 0, "jurisdiction": tags["jurisdiction"],
-                        "deal_stance": tags["deal_stance"], "deal_structure": tags["deal_structure"],
-                    }
-                return {"status": "unchanged", "document_id": existing["id"], "path": str(path)}
-            if existing:
-                document_id = existing["id"]
-                self._execute(
-                    connection,
-                    """
-                    UPDATE lawagent_documents
-                    SET title = %s, category = %s, document_type = %s, source_system = %s, checksum = %s, metadata = %s::jsonb
-                    WHERE id = %s
-                    """,
-                    (
+        try:
+            with self.connect() as connection:
+                existing = self._fetch_one(connection, "SELECT id, checksum, metadata FROM lawagent_documents WHERE source_path = %s", (str(path),))
+                if existing and existing["checksum"] == checksum:
+                    old_meta = existing.get("metadata") or {}
+                    if isinstance(old_meta, str):
+                        try:
+                            old_meta = json.loads(old_meta)
+                        except (json.JSONDecodeError, TypeError):
+                            old_meta = {}
+                    tags_changed = any(old_meta.get(k) != metadata.get(k) for k in ("jurisdiction", "deal_stance", "deal_structure"))
+                    if tags_changed:
+                        if self.backend == "postgres":
+                            self._execute(connection, "UPDATE lawagent_documents SET metadata = %s::jsonb WHERE id = %s", (json.dumps(metadata), existing["id"]))
+                        else:
+                            self._execute(connection, "UPDATE lawagent_documents SET metadata = %s WHERE id = %s", (json.dumps(metadata), existing["id"]))
+                        connection.commit()
+                        return {
+                            "status": "tags_updated", "document_id": existing["id"], "path": str(path),
+                            "title": path.stem, "category": classification["category"],
+                            "document_type": classification["document_type"], "source_system": source_system,
+                            "chunk_count": 0, "jurisdiction": tags["jurisdiction"],
+                            "deal_stance": tags["deal_stance"], "deal_structure": tags["deal_structure"],
+                        }
+                    return {"status": "unchanged", "document_id": existing["id"], "path": str(path)}
+                if existing:
+                    document_id = existing["id"]
+                    self._execute(
+                        connection,
+                        """
+                        UPDATE lawagent_documents
+                        SET title = %s, category = %s, document_type = %s, source_system = %s, checksum = %s, metadata = %s::jsonb
+                        WHERE id = %s
+                        """,
+                        (
+                            path.stem,
+                            classification["category"],
+                            classification["document_type"],
+                            source_system,
+                            checksum,
+                            json.dumps(metadata),
+                            document_id,
+                        ),
+                    )
+                    self._execute(connection, "DELETE FROM lawagent_chunks WHERE document_id = %s", (document_id,))
+                else:
+                    document_id = self._insert_document(
+                        connection,
                         path.stem,
+                        str(path),
                         classification["category"],
                         classification["document_type"],
                         source_system,
                         checksum,
-                        json.dumps(metadata),
-                        document_id,
-                    ),
-                )
-                self._execute(connection, "DELETE FROM lawagent_chunks WHERE document_id = %s", (document_id,))
-            else:
-                document_id = self._insert_document(
-                    connection,
-                    path.stem,
-                    str(path),
-                    classification["category"],
-                    classification["document_type"],
-                    source_system,
-                    checksum,
-                    metadata,
-                )
+                        metadata,
+                    )
 
-            for index, chunk in enumerate(chunks):
-                keywords = " ".join(sorted(tokenize(chunk["text"]))[:120])
-                if self.backend == "postgres":
-                    self._execute(
-                        connection,
-                        """
-                        INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, keywords_tsv, created_at)
-                        VALUES (%s, %s, %s, %s, %s, to_tsvector('english', %s), %s)
-                        """,
-                        (document_id, index, chunk["page"], chunk["text"], keywords, keywords, now_iso()),
-                    )
-                else:
-                    self._execute(
-                        connection,
-                        """
-                        INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        """,
-                        (document_id, index, chunk["page"], chunk["text"], keywords, now_iso()),
-                    )
-            connection.commit()
+                for index, chunk in enumerate(chunks):
+                    keywords = " ".join(sorted(tokenize(chunk["text"]))[:120])
+                    if self.backend == "postgres":
+                        self._execute(
+                            connection,
+                            """
+                            INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, keywords_tsv, created_at)
+                            VALUES (%s, %s, %s, %s, %s, to_tsvector('english', %s), %s)
+                            """,
+                            (document_id, index, chunk["page"], chunk["text"], keywords, keywords, now_iso()),
+                        )
+                    else:
+                        self._execute(
+                            connection,
+                            """
+                            INSERT INTO lawagent_chunks (document_id, chunk_index, page, text, keywords, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            """,
+                            (document_id, index, chunk["page"], chunk["text"], keywords, now_iso()),
+                        )
+                connection.commit()
+        except Exception as exc:
+            logger.warning("Failed to upsert document %s: %s", path, exc, exc_info=True)
+            return {
+                "status": "error",
+                "reason": "database_write_failed",
+                "path": str(path),
+                "title": path.stem,
+                "error": str(exc),
+            }
 
         return {
             "status": "ingested" if not existing else "updated",
@@ -457,7 +478,17 @@ class CorpusDatabase:
                 seen.add(resolved)
                 if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
                     hint = self._derive_folder_hint(path)
-                    results.append(self.upsert_document(path, folder_hint=hint))
+                    try:
+                        results.append(self.upsert_document(path, folder_hint=hint))
+                    except Exception as exc:
+                        logger.warning("Deposit ingestion failed for %s: %s", path, exc, exc_info=True)
+                        results.append({
+                            "status": "error",
+                            "reason": "ingest_exception",
+                            "path": str(path),
+                            "title": path.stem,
+                            "error": str(exc),
+                        })
         return results
 
     def delete_document(self, document_id: int) -> dict[str, Any]:
