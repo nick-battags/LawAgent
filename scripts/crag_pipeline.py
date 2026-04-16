@@ -268,14 +268,39 @@ def enhance_issue_with_llm(
 
 
 def pipeline_status() -> dict[str, Any]:
-    from scripts.vector_store import get_vector_store
     from scripts.llm_provider import get_llm
 
-    store = get_vector_store()
-    llm = get_llm()
+    vector_status: dict[str, Any]
+    try:
+        from scripts.vector_store import get_vector_store
+
+        store = get_vector_store()
+        vector_status = store.status()
+    except Exception as exc:
+        logger.warning("Vector store status unavailable: %s", exc)
+        vector_status = {
+            "vector_count": 0,
+            "embedding": "unavailable",
+            "embedding_backend": "none",
+            "embedding_urls_configured": 0,
+            "persist_dir": "./chroma_data",
+            "error": str(exc),
+        }
+
+    try:
+        llm = get_llm()
+        llm_status = llm.model_status()
+    except Exception as exc:
+        logger.warning("LLM status unavailable: %s", exc)
+        llm_status = {
+            "ollama_available": False,
+            "mode": "deterministic",
+            "active_backend": "none",
+            "error": str(exc),
+        }
     return {
-        "vector_store": store.status(),
-        "llm": llm.model_status(),
+        "vector_store": vector_status,
+        "llm": llm_status,
         "max_retries": MAX_CRAG_RETRIES,
         "retrieval_top_k": RETRIEVAL_TOP_K,
         "runtime_mode": _configured_mode(),

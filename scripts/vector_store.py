@@ -48,16 +48,48 @@ class VectorStore:
 
         self.client = chromadb.PersistentClient(path=persist_dir)
         self._embedding_fn = self._resolve_embedding_fn()
-        self.collection = self.client.get_or_create_collection(
+        self.collection = self._open_collection()
+        try:
+            self._last_vector_count = self.collection.count()
+        except Exception as exc:
+            if self._is_recoverable_chroma_error(exc):
+                logger.warning("Chroma index appears corrupted; rebuilding collection: %s", exc)
+                self._rebuild_collection()
+                self._last_vector_count = self.collection.count()
+            else:
+                raise
+        logger.info(
+            "ChromaDB initialized (%s): %d vectors in collection",
+            self._embedding_label,
+            self._last_vector_count,
+        )
+
+    @staticmethod
+    def _is_recoverable_chroma_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        markers = (
+            "error loading hnsw index",
+            "hnsw segment reader",
+            "error constructing hnsw segment reader",
+            "backfill request to compactor",
+        )
+        return any(marker in message for marker in markers)
+
+    def _open_collection(self):
+        return self.client.get_or_create_collection(
             name="lawagent_corpus",
             embedding_function=self._embedding_fn,
             metadata={"hnsw:space": "cosine"},
         )
-        logger.info(
-            "ChromaDB initialized (%s): %d vectors in collection",
-            self._embedding_label,
-            self.collection.count(),
-        )
+
+    def _rebuild_collection(self) -> None:
+        with self._lock:
+            try:
+                self.client.delete_collection("lawagent_corpus")
+            except Exception:
+                pass
+            self.collection = self._open_collection()
+            self._last_vector_count = 0
 
     def _build_ollama_embedding_fn(self, base_url: str):
         from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
@@ -120,6 +152,10 @@ class VectorStore:
                     embedding_function=self._embedding_fn,
                     metadata={"hnsw:space": "cosine"},
                 )
+                try:
+                    self._last_vector_count = self.collection.count()
+                except Exception:
+                    self._last_vector_count = 0
                 logger.warning(
                     "Embedding failover active: switched to %s endpoint (%s)",
                     self._active_embedding_backend,
@@ -175,6 +211,10 @@ class VectorStore:
                             documents=documents[i : i + current],
                             metadatas=metadatas[i : i + current],
                         )
+                        try:
+                            self._last_vector_count = self.collection.count()
+                        except Exception:
+                            pass
                     added_local += current
                     i += current
                 except Exception as exc:
@@ -203,7 +243,17 @@ class VectorStore:
         category: str | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
-            if self.collection.count() == 0:
+            try:
+                current_count = self.collection.count()
+                self._last_vector_count = current_count
+            except Exception as exc:
+                if self._is_recoverable_chroma_error(exc):
+                    logger.warning("Chroma query detected corrupted index; rebuilding collection")
+                    self._rebuild_collection()
+                    current_count = 0
+                else:
+                    raise
+            if current_count == 0:
                 return []
 
         where = {"category": category} if category else None
@@ -254,10 +304,16 @@ class VectorStore:
             return {"synced": 0, "total": self.collection.count()}
 
         with self._lock:
-            before = self.collection.count()
+            try:
+                before = self.collection.count()
+            except Exception:
+                before = self._last_vector_count
         added = self.add_chunks(chunks)
         with self._lock:
-            after = self.collection.count()
+            try:
+                after = self.collection.count()
+            except Exception:
+                after = self._last_vector_count
 
         logger.info(
             "Vector sync complete: %d chunks processed (before=%d, after=%d)",
@@ -271,7 +327,10 @@ class VectorStore:
         from scripts.ma_corpus_db import get_db
 
         with self._lock:
-            before = self.collection.count()
+            try:
+                before = self.collection.count()
+            except Exception:
+                before = self._last_vector_count
 
         if not document_ids:
             return {"synced": 0, "before": before, "after": before}
@@ -281,7 +340,10 @@ class VectorStore:
         added = self.add_chunks(chunks)
 
         with self._lock:
-            after = self.collection.count()
+            try:
+                after = self.collection.count()
+            except Exception:
+                after = self._last_vector_count
 
         logger.info(
             "Vector partial sync complete for docs=%s: %d chunks (before=%d, after=%d)",
@@ -315,16 +377,34 @@ class VectorStore:
                 embedding_function=self._embedding_fn,
                 metadata={"hnsw:space": "cosine"},
             )
+            self._last_vector_count = 0
 
     def count(self) -> int:
         with self._lock:
-            return self.collection.count()
+            try:
+                self._last_vector_count = self.collection.count()
+            except Exception as exc:
+                if self._is_recoverable_chroma_error(exc):
+                    logger.warning("Chroma count detected corrupted index; rebuilding collection")
+                    self._rebuild_collection()
+                    self._last_vector_count = 0
+                else:
+                    raise
+            return self._last_vector_count
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            vector_count = self.collection.count()
+            try:
+                self._last_vector_count = self.collection.count()
+            except Exception as exc:
+                if self._is_recoverable_chroma_error(exc):
+                    logger.warning("Chroma status detected corrupted index; rebuilding collection")
+                    self._rebuild_collection()
+                    self._last_vector_count = 0
+                else:
+                    raise
         return {
-            "vector_count": vector_count,
+            "vector_count": self._last_vector_count,
             "embedding": self._embedding_label,
             "embedding_backend": self._active_embedding_backend,
             "embedding_urls_configured": len(self._ollama_urls),
