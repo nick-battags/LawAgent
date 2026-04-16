@@ -23,8 +23,8 @@ if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     throw "Missing .venv python at .\.venv\Scripts\python.exe. Create your venv first."
 }
 
-Set-EnvDefault -Name "ADMIN_PIN" -Value "123456"
-Set-EnvDefault -Name "FLASK_SECRET_KEY" -Value "replace-with-long-random-secret"
+$env:ADMIN_PIN = "1322"
+$env:FLASK_SECRET_KEY = "R@mblerstags67."
 Set-EnvDefault -Name "LAWAGENT_RUNTIME_MODE" -Value "auto"
 Set-EnvDefault -Name "LAWAGENT_ALLOW_RUNTIME_MODE_OVERRIDE" -Value "true"
 Set-EnvDefault -Name "GRADER_MODEL" -Value "llama3.1:8b"
@@ -39,10 +39,6 @@ if ($LocalOnly) {
     $env:OLLAMA_BASE_URLS = "$primary,$fallback"
 } elseif ([string]::IsNullOrWhiteSpace($env:OLLAMA_BASE_URLS)) {
     $env:OLLAMA_BASE_URLS = $primary
-}
-
-if ($env:FLASK_SECRET_KEY -eq "replace-with-long-random-secret") {
-    Write-Warning "FLASK_SECRET_KEY is using placeholder value. Replace it for production use."
 }
 
 Write-Host "LawAgent root: $repoRoot"
