@@ -118,20 +118,6 @@ function renderAnalysis(data) {
                 </div>`
               : ""
           }
-          ${
-            issue.corpus_support
-              ? `<p><strong>Corpus support:</strong></p>${issue.corpus_support
-                  .map(
-                    (support) => `
-                    <div class="reference">
-                      <span class="tag">${escapeHtml(support.category.replaceAll("_", " "))}</span>
-                      <p><strong>${escapeHtml(support.title)}</strong> Â· page ${escapeHtml(support.page)}</p>
-                      <p>${escapeHtml(support.excerpt)}</p>
-                    </div>`
-                  )
-                  .join("")}`
-              : ""
-          }
           <p><a href="${escapeHtml(issue.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(issue.source)}</a></p>
         </article>`
             )
@@ -152,33 +138,6 @@ function renderAnalysis(data) {
       .join("")}
     <h3>Diligence checklist</h3>
     ${data.checklist.map((item) => `<div class="followup">${escapeHtml(item)}</div>`).join("")}
-    <h3>Retrieved public-reference guidance</h3>
-    ${data.retrieved_authorities
-      .map(
-        (item) => `
-      <article class="reference">
-        <span class="tag">${escapeHtml(item.topic.replaceAll("_", " "))}</span>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.text)}</p>
-        <p><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(item.source)}</a></p>
-      </article>`
-      )
-      .join("")}
-    ${
-      data.corpus_results
-        ? `<h3>V2 corpus chunks used</h3>${data.corpus_results
-            .map(
-              (item) => `
-              <article class="reference">
-                <span class="tag">${escapeHtml(item.category.replaceAll("_", " "))}</span>
-                <h3>${escapeHtml(item.title)} Â· page ${escapeHtml(item.page)}</h3>
-                <p>${escapeHtml(item.text.slice(0, 700))}</p>
-                <p><strong>Source:</strong> ${escapeHtml(item.source_system)}</p>
-              </article>`
-            )
-            .join("")}`
-        : ""
-    }
     ${
       data.llm_analysis && data.llm_analysis.analysis
         ? `<h3>LLM synthesis (Command-R7B)</h3>
