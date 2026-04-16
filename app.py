@@ -6,6 +6,7 @@ import re
 import tempfile
 import threading
 import traceback
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,37 @@ _session_store: dict[str, list[dict[str, Any]]] = {}
 _session_lock = threading.Lock()
 MAX_SESSIONS = 50
 MAX_SESSION_DOCS = 10
+DEFAULT_EDGAR_END_DATE = date.today().isoformat()
+
+
+def _trigger_vector_sync(reason: str, document_ids: list[int] | None = None) -> None:
+    def run_sync() -> None:
+        try:
+            from scripts.vector_store import get_vector_store
+
+            store = get_vector_store()
+            if document_ids:
+                result = store.sync_documents(document_ids)
+            else:
+                result = store.sync_from_postgres()
+            logger.info("Auto vector sync complete (%s): %s", reason, result)
+        except Exception:
+            logger.warning("Auto vector sync failed (%s): %s", reason, traceback.format_exc())
+
+    thread = threading.Thread(target=run_sync, daemon=True)
+    thread.start()
+
+
+def _extract_document_ids(items: list[dict[str, Any]]) -> list[int]:
+    doc_ids: list[int] = []
+    for item in items:
+        raw = item.get("document_id")
+        try:
+            if raw is not None:
+                doc_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return sorted(set(doc_ids))
 
 
 def _get_session_docs(session_id: str) -> list[dict[str, Any]]:
@@ -188,6 +220,11 @@ def v2_corpus_status():
 @_require_admin
 def v2_ingest_deposits():
     results = ingest_deposited_documents()
+    changed_ids = _extract_document_ids(
+        [item for item in results if item.get("status") in {"ingested", "updated", "tags_updated"}]
+    )
+    if changed_ids:
+        _trigger_vector_sync("deposit ingestion", document_ids=changed_ids)
     return jsonify({"results": results, "status": get_db().stats()})
 
 
@@ -220,6 +257,12 @@ def v2_upload_document():
         result = get_db().upsert_document(target, tag_overrides=tag_overrides or None)
         results.append(result)
 
+    changed_ids = _extract_document_ids(
+        [item for item in results if item.get("status") in {"ingested", "updated", "tags_updated"}]
+    )
+    if changed_ids:
+        _trigger_vector_sync("manual upload", document_ids=changed_ids)
+
     return jsonify({"results": results, "errors": errors, "status": get_db().stats()})
 
 
@@ -229,6 +272,13 @@ def v2_delete_document(doc_id: int):
     result = get_db().delete_document(doc_id)
     if "error" in result:
         return jsonify(result), 404
+    try:
+        from scripts.vector_store import get_vector_store
+
+        removed = get_vector_store().remove_document(doc_id)
+        result["vectors_removed"] = removed
+    except Exception:
+        logger.warning("Vector delete failed for document %s: %s", doc_id, traceback.format_exc())
     return jsonify(result)
 
 
@@ -245,6 +295,7 @@ def v2_update_tags(doc_id: int):
     result = get_db().update_document_tags(doc_id, tags)
     if "error" in result:
         return jsonify(result), 404
+    _trigger_vector_sync(f"tag update doc={doc_id}", document_ids=[doc_id])
     return jsonify(result)
 
 
@@ -261,9 +312,16 @@ def v2_analyze():
     payload = request.get_json(silent=True) or {}
     contract = str(payload.get("contract", ""))
     session_id = str(payload.get("session_id", ""))
+    runtime_mode = str(payload.get("mode", "")).strip().lower() or None
     session_context = _get_session_docs(session_id) if session_id else []
     try:
-        return jsonify(analyze_contract_v2(contract, session_context=session_context))
+        return jsonify(
+            analyze_contract_v2(
+                contract,
+                session_context=session_context,
+                runtime_mode=runtime_mode,
+            )
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -514,7 +572,7 @@ def edgar_search():
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid max parameter."}), 400
     start_date = request.args.get("start_date", "2022-01-01")
-    end_date = request.args.get("end_date", "2025-12-31")
+    end_date = request.args.get("end_date", DEFAULT_EDGAR_END_DATE)
     results = search_edgar_filings(query=query, start_date=start_date, end_date=end_date, max_results=max_results)
     if results and "error" in results[0]:
         return jsonify({"error": results[0]["error"], "results": [], "query": query}), 502
@@ -531,10 +589,13 @@ def edgar_ingest():
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid max_filings parameter."}), 400
     start_date = str(payload.get("start_date", "2022-01-01"))
-    end_date = str(payload.get("end_date", "2025-12-31"))
+    end_date = str(payload.get("end_date", DEFAULT_EDGAR_END_DATE))
     result = search_and_ingest(query=query, max_filings=max_filings, start_date=start_date, end_date=end_date)
     if result.get("status") == "error":
         return jsonify(result), 502
+    edgar_doc_ids = _extract_document_ids(result.get("ingested", []))
+    if edgar_doc_ids:
+        _trigger_vector_sync("edgar ingestion", document_ids=edgar_doc_ids)
     return jsonify(result)
 
 
@@ -542,9 +603,15 @@ def edgar_ingest():
 def v2_template_generate():
     payload = request.get_json(silent=True) or {}
     details = payload.get("details") or {}
+    runtime_mode = str(payload.get("mode", "")).strip().lower() or None
     if not isinstance(details, dict):
         return jsonify({"error": "Template details must be an object."}), 400
-    return jsonify(generate_agreement_v2({str(k): str(v) for k, v in details.items()}))
+    return jsonify(
+        generate_agreement_v2(
+            {str(k): str(v) for k, v in details.items()},
+            runtime_mode=runtime_mode,
+        )
+    )
 
 
 @app.get("/api/datasets/status")
@@ -574,7 +641,10 @@ def datasets_maud_ingest():
         valid_splits = ["train"]
 
     def run_maud():
-        ingest_maud(max_contracts=max_contracts, splits=valid_splits)
+        result = ingest_maud(max_contracts=max_contracts, splits=valid_splits)
+        maud_doc_ids = _extract_document_ids(result.get("results", []))
+        if result.get("status") == "complete" and maud_doc_ids:
+            _trigger_vector_sync("maud ingestion", document_ids=maud_doc_ids)
 
     thread = threading.Thread(target=run_maud, daemon=True)
     thread.start()
@@ -595,7 +665,10 @@ def datasets_cuad_ingest():
         return jsonify({"error": "max_contracts must be a number"}), 400
 
     def run_cuad():
-        ingest_cuad(max_contracts=max_contracts)
+        result = ingest_cuad(max_contracts=max_contracts)
+        cuad_doc_ids = _extract_document_ids(result.get("results", []))
+        if result.get("status") == "complete" and cuad_doc_ids:
+            _trigger_vector_sync("cuad ingestion", document_ids=cuad_doc_ids)
 
     thread = threading.Thread(target=run_cuad, daemon=True)
     thread.start()

@@ -21,3 +21,4 @@ training_docs_inbox/*
 
 # Local env files
 .env
+deployment/.env.vps

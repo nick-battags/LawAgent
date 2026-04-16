@@ -216,7 +216,7 @@ def ingest_maud(
                 continue
 
             source_path = f"maud://{contract_name}"
-            _ingest_dataset_document(
+            document_id = _ingest_dataset_document(
                 db=db,
                 title=f"MAUD_{contract_name}",
                 source_path=source_path,
@@ -227,6 +227,7 @@ def ingest_maud(
                 chunks=chunks,
             )
             results.append({
+                "document_id": document_id,
                 "title": f"MAUD_{contract_name}",
                 "category": primary_category,
                 "chunk_count": len(chunks),
@@ -343,7 +344,7 @@ def ingest_cuad(max_contracts: int = 50) -> dict[str, Any]:
             safe_title = re.sub(r"[^\w\-]", "_", title_raw)[:100]
             source_path = f"cuad://{safe_title}"
 
-            _ingest_dataset_document(
+            document_id = _ingest_dataset_document(
                 db=db,
                 title=f"CUAD_{safe_title}",
                 source_path=source_path,
@@ -354,6 +355,7 @@ def ingest_cuad(max_contracts: int = 50) -> dict[str, Any]:
                 chunks=chunks,
             )
             results.append({
+                "document_id": document_id,
                 "title": f"CUAD_{safe_title}",
                 "category": classification["category"],
                 "chunk_count": len(chunks),

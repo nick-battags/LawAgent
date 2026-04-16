@@ -84,6 +84,14 @@
               <button id="clearContract" class="ghost">Clear</button>
             </div>
             <textarea id="contractText" placeholder="Paste contract text here..."></textarea>
+            <label for="analyzeMode">
+              Runtime mode
+              <select id="analyzeMode">
+                <option value="auto" selected>Auto (LLM with deterministic fallback)</option>
+                <option value="llm">LLM only</option>
+                <option value="deterministic">Deterministic only</option>
+              </select>
+            </label>
             <button id="analyzeBtn" class="primary wide">Run issue spotting</button>
             <button id="analyzeV2Btn" class="secondary dark wide">Run V2 database CRAG</button>
           </div>

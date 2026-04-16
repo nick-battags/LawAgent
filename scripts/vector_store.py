@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import threading
 from typing import Any
 
 import chromadb
@@ -17,18 +18,22 @@ import chromadb
 logger = logging.getLogger(__name__)
 
 _store: VectorStore | None = None
+_store_lock = threading.Lock()
 
 
 def get_vector_store() -> VectorStore:
     global _store
     if _store is None:
-        _store = VectorStore()
+        with _store_lock:
+            if _store is None:
+                _store = VectorStore()
     return _store
 
 
 class VectorStore:
     def __init__(self, persist_dir: str = "./chroma_data"):
         self.persist_dir = persist_dir
+        self._lock = threading.RLock()
         self.client = chromadb.PersistentClient(path=persist_dir)
         self._embedding_fn = self._resolve_embedding_fn()
         self.collection = self.client.get_or_create_collection(
@@ -97,13 +102,14 @@ class VectorStore:
 
         batch_size = 500
         added = 0
-        for i in range(0, len(ids), batch_size):
-            self.collection.upsert(
-                ids=ids[i : i + batch_size],
-                documents=documents[i : i + batch_size],
-                metadatas=metadatas[i : i + batch_size],
-            )
-            added += len(ids[i : i + batch_size])
+        with self._lock:
+            for i in range(0, len(ids), batch_size):
+                self.collection.upsert(
+                    ids=ids[i : i + batch_size],
+                    documents=documents[i : i + batch_size],
+                    metadatas=metadatas[i : i + batch_size],
+                )
+                added += len(ids[i : i + batch_size])
         return added
 
     def query(
@@ -148,25 +154,59 @@ class VectorStore:
         if not chunks:
             logger.info("No chunks in PostgreSQL to sync")
             return {"synced": 0, "total": self.collection.count()}
-        before = self.collection.count()
-        added = self.add_chunks(chunks)
-        after = self.collection.count()
+        with self._lock:
+            before = self.collection.count()
+            added = self.add_chunks(chunks)
+            after = self.collection.count()
         logger.info(
             "Vector sync complete: %d chunks processed (before=%d, after=%d)",
             added, before, after,
         )
         return {"synced": added, "before": before, "after": after}
 
-    def clear(self) -> None:
-        self.client.delete_collection("lawagent_corpus")
-        self.collection = self.client.get_or_create_collection(
-            name="lawagent_corpus",
-            embedding_function=self._embedding_fn,
-            metadata={"hnsw:space": "cosine"},
+    def sync_documents(self, document_ids: list[int]) -> dict[str, Any]:
+        from scripts.ma_corpus_db import get_db
+
+        if not document_ids:
+            return {"synced": 0, "before": self.collection.count(), "after": self.collection.count()}
+
+        db = get_db()
+        chunks = db.get_chunks_for_documents(document_ids)
+        with self._lock:
+            before = self.collection.count()
+            added = self.add_chunks(chunks)
+            after = self.collection.count()
+        logger.info(
+            "Vector partial sync complete for docs=%s: %d chunks (before=%d, after=%d)",
+            document_ids,
+            added,
+            before,
+            after,
         )
+        return {"synced": added, "before": before, "after": after, "document_ids": document_ids}
+
+    def remove_document(self, document_id: int) -> int:
+        with self._lock:
+            existing = self.collection.get(where={"document_id": str(document_id)})
+            ids = existing.get("ids") or []
+            if ids:
+                self.collection.delete(ids=ids)
+            removed = len(ids)
+        logger.info("Removed %d vector chunks for document_id=%s", removed, document_id)
+        return removed
+
+    def clear(self) -> None:
+        with self._lock:
+            self.client.delete_collection("lawagent_corpus")
+            self.collection = self.client.get_or_create_collection(
+                name="lawagent_corpus",
+                embedding_function=self._embedding_fn,
+                metadata={"hnsw:space": "cosine"},
+            )
 
     def count(self) -> int:
-        return self.collection.count()
+        with self._lock:
+            return self.collection.count()
 
     def status(self) -> dict[str, Any]:
         return {

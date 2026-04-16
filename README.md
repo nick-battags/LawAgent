@@ -179,3 +179,18 @@ python scripts/4_batch_test_ma.py `
   - retrieval depth (`--k`)
   - rewrite retries (`--max-rewrites`)
   - metadata filters (`--filter-*`)
+
+## Deployment (Off Replit)
+
+This repo now includes a full non-Replit deployment path:
+
+- [Hybrid VPS Guide](deployment/HYBRID_VPS_GUIDE.md)
+- [Hybrid Compose File](deployment/docker-compose.hybrid.yml)
+- [VPS Env Template](deployment/.env.vps.example)
+
+Recommended production architecture:
+
+1. Cheap VPS hosts `LawAgent + PostgreSQL + TLS`.
+2. Home always-on machine hosts Ollama (`llama3.1:8b`, `command-r:7b`, `nomic-embed-text`).
+3. App uses `LAWAGENT_RUNTIME_MODE=auto` so deterministic fallback remains available when Ollama is unreachable.
+4. Vector sync is automatic after corpus-changing operations (uploads, deposit ingest, MAUD/CUAD ingestion, EDGAR ingest, tag updates, deletes).

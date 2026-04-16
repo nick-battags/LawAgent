@@ -1,6 +1,7 @@
-const contractText = document.querySelector("#contractText");
+﻿const contractText = document.querySelector("#contractText");
 const analyzeBtn = document.querySelector("#analyzeBtn");
 const analyzeV2Btn = document.querySelector("#analyzeV2Btn");
+const analyzeMode = document.querySelector("#analyzeMode");
 const loadSample = document.querySelector("#loadSample");
 const clearContract = document.querySelector("#clearContract");
 const analysisEmpty = document.querySelector("#analysisEmpty");
@@ -50,7 +51,7 @@ function updateSessionStatus() {
     <div style="border-bottom:1px solid var(--line);padding:8px 0">
       <span class="tag">${escapeHtml(doc.category.replaceAll("_", " "))}</span>
       <strong> ${escapeHtml(doc.filename)}</strong>
-      <p class="muted" style="margin:4px 0 0">${doc.chunk_count} chunks extracted · ${escapeHtml(doc.document_type)}</p>
+      <p class="muted" style="margin:4px 0 0">${doc.chunk_count} chunks extracted Â· ${escapeHtml(doc.document_type)}</p>
     </div>
   `).join("");
 }
@@ -92,7 +93,7 @@ function renderAnalysis(data) {
       <span class="tag">Detected parties</span>
       <p>${parties}</p>
       <span class="tag">Pipeline</span>
-      <p>${data.summary.crag_pipeline.map(escapeHtml).join(" → ")}</p>
+      <p>${data.summary.crag_pipeline.map(escapeHtml).join(" â†’ ")}</p>
     </div>
     ${sessionDocuments.length ? `<div class="issue"><span class="tag present">Session context</span><p>${sessionDocuments.length} deal-specific document${sessionDocuments.length > 1 ? "s" : ""} included in this analysis.</p></div>` : ""}
     <h3>Corrective issue list</h3>
@@ -124,7 +125,7 @@ function renderAnalysis(data) {
                     (support) => `
                     <div class="reference">
                       <span class="tag">${escapeHtml(support.category.replaceAll("_", " "))}</span>
-                      <p><strong>${escapeHtml(support.title)}</strong> · page ${escapeHtml(support.page)}</p>
+                      <p><strong>${escapeHtml(support.title)}</strong> Â· page ${escapeHtml(support.page)}</p>
                       <p>${escapeHtml(support.excerpt)}</p>
                     </div>`
                   )
@@ -170,7 +171,7 @@ function renderAnalysis(data) {
               (item) => `
               <article class="reference">
                 <span class="tag">${escapeHtml(item.category.replaceAll("_", " "))}</span>
-                <h3>${escapeHtml(item.title)} · page ${escapeHtml(item.page)}</h3>
+                <h3>${escapeHtml(item.title)} Â· page ${escapeHtml(item.page)}</h3>
                 <p>${escapeHtml(item.text.slice(0, 700))}</p>
                 <p><strong>Source:</strong> ${escapeHtml(item.source_system)}</p>
               </article>`
@@ -194,8 +195,9 @@ function renderAnalysis(data) {
       data.architecture
         ? `<h3>V2 architecture</h3><div class="issue">
             <p><strong>Mode:</strong> ${escapeHtml(data.architecture.mode || "deterministic")}</p>
-            <p><strong>Grader:</strong> ${escapeHtml(data.architecture.grader || "n/a")} · <strong>Generator:</strong> ${escapeHtml(data.architecture.generator || "n/a")}</p>
-            <p><strong>Embedding:</strong> ${escapeHtml(data.architecture.embedding || "default")} · <strong>Vectors:</strong> ${data.architecture.vector_count || 0}</p>
+            <p><strong>Runtime preference:</strong> ${escapeHtml(data.architecture.runtime_mode || "auto")}</p>
+            <p><strong>Grader:</strong> ${escapeHtml(data.architecture.grader || "n/a")} Â· <strong>Generator:</strong> ${escapeHtml(data.architecture.generator || "n/a")}</p>
+            <p><strong>Embedding:</strong> ${escapeHtml(data.architecture.embedding || "default")} Â· <strong>Vectors:</strong> ${data.architecture.vector_count || 0}</p>
             <p><strong>Database:</strong> ${escapeHtml(data.architecture.database || "")}</p>
             ${data.architecture.pipeline ? `<ol>${data.architecture.pipeline.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>` : ""}
             <p>${(data.architecture.security || []).map(escapeHtml).join("<br>")}</p>
@@ -264,6 +266,7 @@ analyzeV2Btn.addEventListener("click", async () => {
       body: JSON.stringify({
         contract: contractText.value,
         session_id: sessionId,
+        mode: analyzeMode ? analyzeMode.value : "auto",
       }),
     });
     renderAnalysis(data);
@@ -343,10 +346,14 @@ templateForm.addEventListener("submit", async (event) => {
   const details = Object.fromEntries(formData.entries());
   draftOutput.textContent = "Generating draft...";
   const endpoint = sessionDocuments.length ? "/api/v2/template/generate" : "/api/template/generate";
+  const payload = { details, session_id: sessionId };
+  if (endpoint === "/api/v2/template/generate" && analyzeMode) {
+    payload.mode = analyzeMode.value;
+  }
   const data = await getJson(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ details, session_id: sessionId }),
+    body: JSON.stringify(payload),
   });
   const followUps = data.follow_up_questions.map((item) => `- ${item}`).join("\n");
   const references = data.retrieved_authorities
@@ -372,12 +379,14 @@ async function loadPipelineStatus() {
     const data = await getJson("/api/v2/pipeline/status");
     const llm = data.llm || {};
     const vs = data.vector_store || {};
+    const runtimeMode = data.runtime_mode || "auto";
     const mode = llm.mode === "llm"
       ? `<span class="tag present">LLM active</span>`
       : `<span class="tag">Deterministic fallback</span>`;
     el.innerHTML = `
       <div class="pipeline-meta">
         ${mode}
+        <span class="tag">${escapeHtml(runtimeMode)} mode</span>
         <span class="muted">${vs.vector_count || 0} vectors indexed</span>
         <span class="muted">${vs.embedding || "default"}</span>
       </div>`;
@@ -387,3 +396,4 @@ async function loadPipelineStatus() {
 }
 
 loadPipelineStatus();
+

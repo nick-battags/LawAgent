@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 import logging
 import re
 import time
@@ -25,12 +26,12 @@ EDGAR_FULL_TEXT_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 EDGAR_BASE = "https://www.sec.gov"
 
 HEADERS = {
-    "User-Agent": "LawAgent-Demo/1.0 (educational M&A research tool; lawagent@demo.replit.app)",
+    "User-Agent": "LawAgent/1.0 (educational M&A research tool; contact@nickvbattaglia.com)",
     "Accept": "application/json",
 }
 
 TEXT_HEADERS = {
-    "User-Agent": "LawAgent-Demo/1.0 (educational M&A research tool; lawagent@demo.replit.app)",
+    "User-Agent": "LawAgent/1.0 (educational M&A research tool; contact@nickvbattaglia.com)",
     "Accept": "text/html, text/plain, application/xhtml+xml",
 }
 
@@ -42,6 +43,7 @@ MA_SEARCH_QUERIES = [
 ]
 
 SEC_RATE_LIMIT_DELAY = 0.12
+DEFAULT_END_DATE = date.today().isoformat()
 
 EXHIBIT_MERGER = ["EX-2.1", "EX-2", "MERGER AGREEMENT", "AGREEMENT AND PLAN OF MERGER"]
 EXHIBIT_MATERIAL = ["EX-10", "EX-10.1", "EX-10.2", "MATERIAL CONTRACT"]
@@ -75,7 +77,7 @@ def search_edgar_filings(
     query: str = '"agreement and plan of merger"',
     forms: str = "8-K,8-K/A",
     start_date: str = "2022-01-01",
-    end_date: str = "2025-12-31",
+    end_date: str = DEFAULT_END_DATE,
     max_results: int = 10,
 ) -> list[dict[str, Any]]:
     session = _get_session()
@@ -210,7 +212,7 @@ def search_and_ingest(
     query: str = '"agreement and plan of merger"',
     max_filings: int = 5,
     start_date: str = "2022-01-01",
-    end_date: str = "2025-12-31",
+    end_date: str = DEFAULT_END_DATE,
     forms: str = "8-K,8-K/A",
 ) -> dict[str, Any]:
     filings = search_edgar_filings(
