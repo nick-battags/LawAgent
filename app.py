@@ -202,7 +202,7 @@ def add_dev_headers(response):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return redirect("/hub")
 
 
 def _admin_authed() -> bool:
