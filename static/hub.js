@@ -217,13 +217,13 @@
     submitSpinner.hidden = false;
 
     try {
-      // Upload context files first
+      // Submit first to get a session_id, then upload context (which requires session_id)
+      const sessionResult = await submitHub(currentMode, prompt);
+      currentSessionId = sessionResult.session_id;
+
       for (const ctxFile of contextFiles) {
         await uploadContext(ctxFile);
       }
-
-      const sessionResult = await submitHub(currentMode, prompt);
-      currentSessionId = sessionResult.session_id;
 
       if (sessionResult.status === 'running') {
         startPolling(currentSessionId);

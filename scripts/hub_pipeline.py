@@ -515,6 +515,18 @@ def run_hub_session(
 
         all_changes = redline_changes + missing_changes
 
+        # ── Step 6.5: rehydrate placeholders → real names BEFORE persistence ──
+        # The LLM ran on anonymized text, so original_text / proposed_text /
+        # rationale all reference [PARTY_1] etc. Rehydrate everything before the
+        # user sees it OR the DB stores it, so downstream display / bake / chat
+        # all work on real text.
+        draft_display = anon.rehydrate(draft_anon) if draft_anon else ""
+        for c in all_changes:
+            for k in ("original_text", "proposed_text", "current_text", "rationale", "clause_anchor"):
+                v = c.get(k)
+                if isinstance(v, str) and v:
+                    c[k] = anon.rehydrate(v)
+
         # ── Step 7: persist to Postgres ────────────────────────────────────
         change_ids: list[str] = []
         if db_url:
@@ -539,7 +551,7 @@ def run_hub_session(
             "status": "ready",
             "mode": mode,
             "posture": posture,
-            "draft_text": draft_anon,
+            "draft_text": draft_display,
             "changes": all_changes,
             "change_ids": change_ids,
             "gcs_prefix": gcs_prefix,

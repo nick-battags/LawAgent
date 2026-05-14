@@ -175,7 +175,9 @@ def _build_clean_docx(draft_text: str, accepted_changes: list[dict[str, Any]]) -
         original = c.get("original_text")
         replacement = c.get("current_text") or c.get("proposed_text", "")
         if original and original in text:
-            text = text.replace(original, replacement, 1)
+            # Replace ALL occurrences — a single original_text appearing in
+            # multiple paragraphs (e.g. boilerplate header) should all be updated.
+            text = text.replace(original, replacement)
 
     doc = Document()
     for line in text.split("\n"):
@@ -344,6 +346,23 @@ def _write_supermemory_summary(
 
     if len(summary_text) > 2000:
         summary_text = summary_text[:1997] + "..."
+
+    # Re-screen with PII firewall before any Supermemory write. The summary is
+    # category-only by construction, but defense-in-depth: never persist input
+    # that slipped past anonymization. Skip dollar-amount checks (deal figures
+    # are legitimate in summaries).
+    try:
+        from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
+        blocked, reason = _pii_screen(summary_text, skip_patterns=HUB_SKIP_PATTERNS)
+        if blocked:
+            logger.warning(
+                "Supermemory summary write blocked by PII firewall for session %s (%s) — skipping",
+                session_id, reason,
+            )
+            return
+    except Exception:
+        # Firewall import/run failure should not block the bake; log and continue
+        logger.warning("PII re-screen failed for session %s — proceeding with caution", session_id)
 
     try:
         from scripts.session_memory import get_session_memory

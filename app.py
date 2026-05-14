@@ -1101,6 +1101,7 @@ def _submit_hub(mode: str) -> Response:
         "posture": posture,
         "changes": [],
         "draft_text": "",
+        "gcs_prefix": f"review-staging/{session_id}/",
     })
 
     # Launch pipeline in background thread; return 202 immediately
@@ -1224,14 +1225,17 @@ def hub_change_action(session_id: str, change_id: str):
     if action not in valid_actions:
         return jsonify({"error": f"action must be one of {valid_actions}"}), 400
 
-    # Update in-memory session
-    data = _hub_load(session_id)
-    if data:
-        for c in data.get("changes", []):
-            if c.get("id") == change_id or c.get("change_id") == change_id:
-                c["current_action"] = action
-                if edited_text is not None:
-                    c["current_text"] = edited_text
+    # Update in-memory session under the lock to avoid race with evict / concurrent PATCH
+    with _hub_sessions_lock:
+        _hub_evict_expired()
+        data = _hub_sessions.get(session_id)
+        if data:
+            for c in data.get("changes", []):
+                if c.get("id") == change_id or c.get("change_id") == change_id:
+                    c["current_action"] = action
+                    if edited_text is not None:
+                        c["current_text"] = edited_text
+                    break
 
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
@@ -1275,12 +1279,15 @@ def hub_ask(session_id: str):
     if not question:
         return jsonify({"error": "question is required"}), 400
 
+    # Hub clause questions naturally reference deal figures — skip dollar amounts,
+    # but enforce the standard 500-char length (chat lines, not drafting briefs)
     err = _check_input_length(question)
     if err:
         return err
-    err = _pii_screen_request(question)
-    if err:
-        return err
+    from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
+    blocked, reason = _pii_screen(question, skip_patterns=HUB_SKIP_PATTERNS)
+    if blocked:
+        return jsonify({"error": "Input blocked by content policy", "code": "PII_FILTER", "detail": reason}), 400
 
     from scripts.hub_chat import ask_clause
 
@@ -1307,6 +1314,10 @@ def hub_bake(session_id: str):
     data = _hub_load(session_id)
     if not data:
         return jsonify({"error": "Session not found or expired"}), 404
+    if data.get("status") == "running":
+        return jsonify({"error": "Session is still processing — wait for status=ready before bake", "code": "STILL_RUNNING"}), 409
+    if data.get("status") == "error":
+        return jsonify({"error": "Session failed; cannot bake", "code": "SESSION_FAILED"}), 409
 
     from scripts.hub_export import bake_session
     try:

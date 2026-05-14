@@ -51,4 +51,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8080}/health')" || exit 1
 
-CMD ["gunicorn", "--config", "gunicorn.conf.py", "app:app"]
+# Use `python -m gunicorn` so we don't depend on the bin/ shim that
+# `pip install --target` may or may not generate consistently.
+CMD ["python", "-m", "gunicorn", "--config", "gunicorn.conf.py", "app:app"]
