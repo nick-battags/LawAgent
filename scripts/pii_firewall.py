@@ -29,7 +29,12 @@ _PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "credit_card",
-        re.compile(r"\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"),
+        re.compile(
+            r"\b(?:"
+            r"3[47]\d{2}[- ]?\d{6}[- ]?\d{5}"            # Amex: 4-6-5 = 15 digits
+            r"|(?:4\d{3}|5[1-5]\d{2}|6(?:011|5\d{2}))[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}"  # Visa/MC/Discover: 4-4-4-4
+            r")\b"
+        ),
     ),
     (
         "email",
