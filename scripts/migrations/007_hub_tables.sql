@@ -1,11 +1,23 @@
 -- Migration 007: Drafting & Review Hub tables (Phase 2c)
 
-CREATE TYPE IF NOT EXISTS hub_mode AS ENUM ('generate', 'revise', 'review');
-CREATE TYPE IF NOT EXISTS hub_posture AS ENUM ('buy', 'sell', 'neutral');
-CREATE TYPE IF NOT EXISTS hub_status AS ENUM ('running', 'ready', 'expired', 'failed');
-CREATE TYPE IF NOT EXISTS hub_severity AS ENUM ('high', 'med', 'low');
-CREATE TYPE IF NOT EXISTS hub_kind AS ENUM ('redline', 'missing_clause');
-CREATE TYPE IF NOT EXISTS hub_action AS ENUM ('pending', 'accepted', 'rejected', 'edited', 'dismissed');
+DO $$ BEGIN
+    CREATE TYPE hub_mode AS ENUM ('generate', 'revise', 'review');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE hub_posture AS ENUM ('buy', 'sell', 'neutral');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE hub_status AS ENUM ('running', 'ready', 'expired', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE hub_severity AS ENUM ('high', 'med', 'low');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE hub_kind AS ENUM ('redline', 'missing_clause');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE hub_action AS ENUM ('pending', 'accepted', 'rejected', 'edited', 'dismissed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS hub_sessions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
