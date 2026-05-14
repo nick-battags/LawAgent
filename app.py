@@ -882,7 +882,8 @@ def v2_llm_status():
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 HUB_ENABLED = os.environ.get("HUB_ENABLED", "true").lower() not in ("false", "0", "no")
-INPUT_MAX_CHARS = 500
+INPUT_MAX_CHARS = 500                                           # CRAG query limit
+HUB_PROMPT_MAX_CHARS = int(os.environ.get("HUB_PROMPT_MAX_CHARS", "5000"))  # Hub drafting brief limit
 
 
 def _demo_gate(f):
@@ -1042,15 +1043,16 @@ def _submit_hub(mode: str) -> Response:
     if DEMO_MODE and not _valid_consent_token(consent_token):
         return jsonify({"error": "Consent required", "code": "CONSENT_REQUIRED"}), 403
 
-    # Input validation
+    # Input validation — hub prompts use a higher character limit (5 000 chars)
+    # and skip dollar-amount PII checks (deal prices are core M&A drafting content)
     prompt = request.form.get("prompt", "").strip()
     if prompt:
-        err = _check_input_length(prompt)
-        if err:
-            return err
-        err = _pii_screen_request(prompt)
-        if err:
-            return err
+        if len(prompt) > HUB_PROMPT_MAX_CHARS:
+            return jsonify({"error": f"Prompt exceeds {HUB_PROMPT_MAX_CHARS} character limit", "code": "LENGTH_LIMIT"}), 400
+        from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
+        blocked, reason = _pii_screen(prompt, skip_patterns=HUB_SKIP_PATTERNS)
+        if blocked:
+            return jsonify({"error": "Input blocked by content policy", "code": "PII_FILTER", "detail": reason}), 400
 
     posture = request.form.get("posture", "neutral")
     if posture not in {"buy", "sell", "neutral"}:

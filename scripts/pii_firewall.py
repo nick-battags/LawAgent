@@ -86,8 +86,16 @@ _TRIGGER_PHRASES: list[tuple[str, list[str]]] = [
 ]
 
 
-def screen(text: str) -> tuple[bool, str | None]:
+def screen(
+    text: str,
+    skip_patterns: set[str] | None = None,
+) -> tuple[bool, str | None]:
     """Screen text for PII and active-matter trigger phrases.
+
+    Args:
+        text: Text to screen.
+        skip_patterns: Set of pattern names to skip (e.g. {"dollar_amount_1k_plus"}).
+                       Useful for Hub prompts where purchase prices are legitimate input.
 
     Returns:
         (False, None)       — text is clean, proceed
@@ -98,7 +106,11 @@ def screen(text: str) -> tuple[bool, str | None]:
     if not text:
         return False, None
 
+    _skip = skip_patterns or set()
+
     for name, pattern in _PII_PATTERNS:
+        if name in _skip:
+            continue
         if pattern.search(text):
             return True, f"PII_PATTERN:{name}"
 
@@ -109,3 +121,8 @@ def screen(text: str) -> tuple[bool, str | None]:
                 return True, f"TRIGGER:{category}:{phrase}"
 
     return False, None
+
+
+# Convenience: PII patterns not appropriate to block in Hub drafting prompts
+# (deal prices, valuations, and working capital figures are core M&A content)
+HUB_SKIP_PATTERNS: frozenset[str] = frozenset({"dollar_amount_1k_plus"})

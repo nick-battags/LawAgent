@@ -131,9 +131,9 @@
   if (promptText) {
     promptText.addEventListener('input', () => {
       const len = promptText.value.length;
-      promptCounter.textContent = `${len} / 500`;
-      promptCounter.classList.toggle('amber', len >= 450 && len < 490);
-      promptCounter.classList.toggle('red', len >= 490);
+      promptCounter.textContent = `${len} / 5000`;
+      promptCounter.classList.toggle('amber', len >= 4500 && len < 4900);
+      promptCounter.classList.toggle('red', len >= 4900);
     });
   }
 
