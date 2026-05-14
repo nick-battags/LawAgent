@@ -1,5 +1,7 @@
 .git
 .venv
+venv/
+node_modules/
 __pycache__
 *.pyc
 *.pyo
@@ -17,3 +19,7 @@ training_docs_inbox
 *.sqlite3
 .env
 deployment/.env.vps
+tests/
+evals/
+docs/
+*.md

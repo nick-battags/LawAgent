@@ -1,6 +1,11 @@
 chromadb
+cohere>=5.0.0
+cryptography
 datasets
 flask
+flask-cors
+flask-limiter
+google-genai
 gunicorn
 langchain
 langchain-chroma
@@ -11,6 +16,8 @@ langchain-text-splitters
 langgraph
 openpyxl
 psycopg[binary]
-pypdf
-python-docx
+pypdf>=5.0
+python-docx==1.2.*
+docx-revisions>=0.3.0
+supermemory>=1.0.0a0
 tiktoken

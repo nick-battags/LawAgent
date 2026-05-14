@@ -1,8 +1,12 @@
-"""Ollama LLM provider for the 2-model CRAG pipeline.
+"""LLM provider abstraction for the 2-model CRAG pipeline.
 
-Llama 3.1 8B: grader/gatekeeper (strict JSON relevance scoring, query rewriting).
-Command-R 7B: generator (synthesis with inline citations, contract analysis).
-Supports app-level endpoint failover via OLLAMA_BASE_URLS.
+Dispatches on LLM_PROVIDER env var:
+  - "ollama"  (default) — local Ollama endpoints, Llama 3.1 8B grader + Command-R 7B generator
+  - "vertex"             — Vertex AI Gemini 2.5 Flash generator + Flash-Lite grader/anonymizer,
+                           Cohere Embed v4 + Rerank 3.5 for retrieval
+
+OllamaProvider supports multi-endpoint failover via OLLAMA_BASE_URLS.
+VertexProvider uses google-genai SDK for Gemini and cohere SDK for embeddings/rerank.
 """
 
 from __future__ import annotations
@@ -20,15 +24,346 @@ from scripts.ollama_endpoints import endpoint_label, fetch_tags, parse_ollama_ba
 
 logger = logging.getLogger(__name__)
 
-_provider: OllamaProvider | None = None
+_provider: OllamaProvider | VertexProvider | None = None
+_provider_lock = threading.Lock()
 
 
-def get_llm() -> OllamaProvider:
+def get_llm() -> OllamaProvider | VertexProvider:
     global _provider
     if _provider is None:
-        _provider = OllamaProvider()
+        with _provider_lock:
+            if _provider is None:
+                backend = os.environ.get("LLM_PROVIDER", "ollama").lower()
+                if backend == "vertex":
+                    _provider = VertexProvider()
+                else:
+                    _provider = OllamaProvider()
     return _provider
 
+
+def reset_llm() -> None:
+    """Force re-initialization of the provider singleton (test helper)."""
+    global _provider
+    with _provider_lock:
+        _provider = None
+
+
+# ---------------------------------------------------------------------------
+# VertexProvider
+# ---------------------------------------------------------------------------
+
+class VertexProvider:
+    """Gemini 2.5 Flash generator + Flash-Lite grader/anonymizer via Vertex AI.
+
+    Embedding and reranking are handled by Cohere Embed v4 + Rerank 3.5.
+    Env vars:
+      GCP_PROJECT           — GCP project ID
+      VERTEX_LOCATION       — defaults to us-central1
+      COHERE_API_KEY        — injected via Secret Manager in Cloud Run
+      GENERATOR_MODEL_VERTEX — defaults to gemini-2.5-flash
+      GRADER_MODEL_VERTEX   — defaults to gemini-2.5-flash-lite
+      EMBED_MODEL_COHERE    — defaults to embed-english-v4.0
+      RERANK_MODEL_COHERE   — defaults to rerank-english-v3.5 (Rerank 3.5)
+      LLM_TIMEOUT           — seconds, defaults to 120
+    """
+
+    def __init__(self) -> None:
+        self.project = os.environ.get("GCP_PROJECT", "")
+        self.location = os.environ.get("VERTEX_LOCATION", "us-central1")
+        self.generator_model = os.environ.get("GENERATOR_MODEL_VERTEX", "gemini-2.5-flash")
+        self.grader_model = os.environ.get("GRADER_MODEL_VERTEX", "gemini-2.5-flash-lite")
+        self.embed_model = os.environ.get("EMBED_MODEL_COHERE", "embed-english-v4.0")
+        self.rerank_model = os.environ.get("RERANK_MODEL_COHERE", "rerank-english-v3.5")
+        self.timeout = int(os.environ.get("LLM_TIMEOUT", "120"))
+
+        self._cohere_key: str | None = None
+        self._genai_client: Any = None
+        self._cohere_client: Any = None
+        self._init_lock = threading.Lock()
+        self._available: bool | None = None
+        self._last_error: str = ""
+
+    # ------------------------------------------------------------------
+    # Lazy client initialization (avoids import errors at module load
+    # when google-genai or cohere aren't installed in local dev)
+    # ------------------------------------------------------------------
+
+    def _get_genai(self) -> Any:
+        if self._genai_client is None:
+            with self._init_lock:
+                if self._genai_client is None:
+                    try:
+                        from google import genai
+                        self._genai_client = genai.Client(
+                            vertexai=True,
+                            project=self.project,
+                            location=self.location,
+                        )
+                    except Exception as exc:
+                        self._last_error = str(exc)
+                        raise
+        return self._genai_client
+
+    def _get_cohere(self) -> Any:
+        if self._cohere_client is None:
+            with self._init_lock:
+                if self._cohere_client is None:
+                    try:
+                        import cohere
+                        key = self._resolve_cohere_key()
+                        self._cohere_client = cohere.ClientV2(api_key=key)
+                    except Exception as exc:
+                        self._last_error = str(exc)
+                        raise
+        return self._cohere_client
+
+    def _resolve_cohere_key(self) -> str:
+        if self._cohere_key:
+            return self._cohere_key
+        key = os.environ.get("COHERE_API_KEY", "")
+        if not key:
+            raise RuntimeError("COHERE_API_KEY env var not set")
+        self._cohere_key = key
+        return key
+
+    # ------------------------------------------------------------------
+    # Public interface (mirrors OllamaProvider)
+    # ------------------------------------------------------------------
+
+    def is_available(self) -> bool:
+        try:
+            self._get_genai()
+            self._get_cohere()
+            self._available = True
+            self._last_error = ""
+            return True
+        except Exception as exc:
+            self._available = False
+            self._last_error = str(exc)
+            logger.warning("VertexProvider unavailable: %s", exc)
+            return False
+
+    def model_status(self) -> dict[str, Any]:
+        available = self.is_available()
+        return {
+            "vertex_available": available,
+            "provider": "vertex",
+            "generator_model": self.generator_model,
+            "grader_model": self.grader_model,
+            "embed_model": self.embed_model,
+            "rerank_model": self.rerank_model,
+            "gcp_project": self.project,
+            "vertex_location": self.location,
+            "last_error": self._last_error if not available else "",
+            "mode": "llm" if available else "deterministic",
+        }
+
+    def embed(self, texts: list[str], input_type: str = "search_document") -> list[list[float]]:
+        """Embed texts using Cohere Embed v4. input_type: search_document or search_query."""
+        co = self._get_cohere()
+        response = co.embed(
+            texts=texts,
+            model=self.embed_model,
+            input_type=input_type,
+            embedding_types=["float"],
+        )
+        return response.embeddings.float
+
+    def rerank(self, query: str, documents: list[str], top_n: int | None = None) -> list[dict[str, Any]]:
+        """Rerank documents using Cohere Rerank 3.5. Returns list of {index, relevance_score}."""
+        co = self._get_cohere()
+        kwargs: dict[str, Any] = {"query": query, "documents": documents, "model": self.rerank_model}
+        if top_n is not None:
+            kwargs["top_n"] = top_n
+        response = co.rerank(**kwargs)
+        return [{"index": r.index, "relevance_score": r.relevance_score} for r in response.results]
+
+    def _generate(self, prompt: str, model: str | None = None, temperature: float = 0.0) -> str:
+        client = self._get_genai()
+        from google.genai import types as genai_types
+        target_model = model or self.generator_model
+        config = genai_types.GenerateContentConfig(temperature=temperature)
+        response = client.models.generate_content(
+            model=target_model,
+            contents=prompt,
+            config=config,
+        )
+        return response.text or ""
+
+    def _generate_json(self, prompt: str, model: str | None = None, temperature: float = 0.0) -> str:
+        client = self._get_genai()
+        from google.genai import types as genai_types
+        target_model = model or self.generator_model
+        config = genai_types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="application/json",
+        )
+        response = client.models.generate_content(
+            model=target_model,
+            contents=prompt,
+            config=config,
+        )
+        return response.text or ""
+
+    def grade_document(self, query: str, document_text: str) -> dict[str, str]:
+        prompt = (
+            "You are a legal document relevance grader. "
+            "Determine whether the document contains information relevant to answering the query. "
+            'Output ONLY valid JSON: {"score": "yes"} if relevant, or {"score": "no"} if not.\n\n'
+            f"Query: {query}\n\nDocument:\n{document_text[:3000]}"
+        )
+        try:
+            raw = self._generate_json(prompt, model=self.grader_model, temperature=0.0)
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("Grading returned non-JSON for query '%s': %s", query[:80], exc)
+            return {"score": "yes"}
+        except Exception as exc:
+            logger.warning("Grading failed for query '%s': %s; switching to deterministic", query[:80], exc)
+            self._available = False
+            return {"score": "fallback"}
+
+    def rewrite_query(self, original_query: str, failed_context: str = "") -> str:
+        prompt = (
+            "You are a legal search query optimizer. The user's original search query did not return "
+            "relevant results from an M&A legal document corpus. Rewrite the query using alternative "
+            "legal terminology, synonyms, and related M&A concepts to improve retrieval. "
+            "Output ONLY the rewritten query text.\n\n"
+            f"Original query: {original_query}\n\n"
+            f"Context (not relevant): {failed_context[:500] if failed_context else 'None'}\n\n"
+            "Rewritten query:"
+        )
+        try:
+            return self._generate(prompt, model=self.grader_model, temperature=0.3).strip().strip('"').strip()
+        except Exception as exc:
+            logger.warning("Query rewrite failed: %s", exc)
+            return f"{original_query} merger acquisition agreement legal provisions"
+
+    def generate_analysis(
+        self,
+        query: str,
+        documents: list[dict[str, Any]],
+        contract_text: str = "",
+    ) -> dict[str, Any]:
+        doc_context = ""
+        for i, doc in enumerate(documents):
+            source = f"[Source: {doc.get('title', 'Unknown')}, Page {doc.get('page', 'N/A')}]"
+            doc_context += f"\n\nDOCUMENT {i + 1} {source}:\n{doc.get('text', '')[:2000]}"
+
+        contract_section = ""
+        if contract_text:
+            contract_section = f"\n\nUSER'S CONTRACT (for analysis):\n{contract_text[:4000]}"
+
+        prompt = (
+            "You are an expert M&A legal analyst performing Corrective RAG analysis. "
+            "You have been given: (1) a user query, (2) verified relevant documents from an M&A legal corpus, "
+            "and optionally (3) the user's contract text for issue spotting.\n\n"
+            "Your task:\n"
+            "- Synthesize the retrieved documents to answer the query.\n"
+            "- For every factual claim, include an inline citation: [Source: filename, Page N].\n"
+            "- If analyzing a contract, identify missing or weak provisions and suggest corrective language.\n"
+            "- Be precise, cite specific clause language, use professional legal drafting tone.\n\n"
+            "Output valid JSON:\n"
+            "{\n"
+            '  "analysis": "Your detailed analysis with inline citations",\n'
+            '  "key_findings": ["finding 1", "finding 2"],\n'
+            '  "corrective_suggestions": ["suggestion 1", "suggestion 2"],\n'
+            '  "risk_level": "low|medium|high",\n'
+            '  "citations": [{"source": "filename", "page": "N", "excerpt": "relevant text"}]\n'
+            "}\n\n"
+            f"Query: {query}{contract_section}\n\n"
+            f"VERIFIED RELEVANT DOCUMENTS:{doc_context}"
+        )
+        try:
+            raw = self._generate_json(prompt, model=self.generator_model, temperature=0.2)
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {
+                "analysis": raw if isinstance(raw, str) else "Generation produced non-JSON output",
+                "key_findings": [],
+                "corrective_suggestions": [],
+                "risk_level": "unknown",
+                "citations": [],
+            }
+        except Exception as exc:
+            logger.error("Generation failed: %s", exc)
+            return {
+                "analysis": f"LLM generation unavailable: {exc}",
+                "key_findings": [],
+                "corrective_suggestions": [],
+                "risk_level": "unknown",
+                "citations": [],
+            }
+
+    def enhance_issue(
+        self,
+        issue_title: str,
+        issue_description: str,
+        corpus_excerpts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        excerpts_text = ""
+        for i, doc in enumerate(corpus_excerpts):
+            source = f"[Source: {doc.get('title', 'Unknown')}, Page {doc.get('page', 'N/A')}]"
+            excerpts_text += f"\n{i + 1}. {source}: {doc.get('text', '')[:800]}"
+
+        prompt = (
+            "You are an M&A legal analyst. Given a contract issue and supporting corpus excerpts, "
+            "provide a concise enhanced analysis. Output valid JSON:\n"
+            "{\n"
+            '  "enhanced_analysis": "2-3 sentence analysis with citations",\n'
+            '  "recommended_language": "Suggested corrective clause text",\n'
+            '  "precedent_basis": "Brief note on market practice"\n'
+            "}\n\n"
+            f"Issue: {issue_title}\n"
+            f"Description: {issue_description}\n\n"
+            f"Supporting corpus excerpts:{excerpts_text}"
+        )
+        try:
+            raw = self._generate_json(prompt, model=self.generator_model, temperature=0.2)
+            return json.loads(raw)
+        except Exception as exc:
+            logger.warning("Issue enhancement failed for '%s': %s", issue_title, exc)
+            return {}
+
+    def anonymize(self, text: str, session_map: dict[str, str]) -> tuple[str, dict[str, str]]:
+        """Pseudonymize text using Flash-Lite. Updates session_map in place.
+
+        Returns (anonymized_text, updated_session_map).
+        The map stores placeholder→original for re-hydration.
+        """
+        existing_json = json.dumps(session_map, indent=2) if session_map else "{}"
+        prompt = (
+            "You are a PII anonymizer for legal documents. Replace all personally identifiable "
+            "information (names, company names, addresses, dollar amounts tied to specific parties, "
+            "case numbers, EINs) with consistent placeholder tokens like [PARTY_A], [COMPANY_1], "
+            "[AMOUNT_1], etc. Reuse existing placeholders from the map for entities already seen.\n\n"
+            "Existing placeholder map (JSON, placeholder→original):\n"
+            f"{existing_json}\n\n"
+            "Text to anonymize:\n"
+            f"{text}\n\n"
+            "Return valid JSON only:\n"
+            '{"anonymized_text": "...", "updated_map": {"[PLACEHOLDER]": "original value", ...}}'
+        )
+        try:
+            raw = self._generate_json(prompt, model=self.grader_model, temperature=0.0)
+            parsed = json.loads(raw)
+            updated_map = parsed.get("updated_map", session_map)
+            return parsed.get("anonymized_text", text), updated_map
+        except Exception as exc:
+            logger.warning("Anonymization failed: %s — returning original text unmodified", exc)
+            return text, session_map
+
+    def rehydrate(self, anonymized_text: str, session_map: dict[str, str]) -> str:
+        """Reverse-map placeholders back to original values for client display."""
+        result = anonymized_text
+        for placeholder, original in session_map.items():
+            result = result.replace(placeholder, original)
+        return result
+
+
+# ---------------------------------------------------------------------------
+# OllamaProvider (unchanged from original, preserved verbatim)
+# ---------------------------------------------------------------------------
 
 class OllamaProvider:
     def __init__(self) -> None:

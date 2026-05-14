@@ -1,20 +1,51 @@
-FROM python:3.11-slim
+# Multi-stage Dockerfile for Cloud Run deployment.
+# Stage 1 installs dependencies; stage 2 copies only what Cloud Run needs.
+# $PORT is injected by Cloud Run at runtime; gunicorn.conf.py reads it.
+
+# ── Stage 1: dependency builder ───────────────────────────────────────────────
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-WORKDIR /app
+WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
+    pip install --no-cache-dir -r requirements.txt --target /build/deps
 
-COPY . /app
+# ── Stage 2: runtime image ────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
 
-EXPOSE 5000
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="/app/deps"
+
+WORKDIR /app
+
+# System deps needed at runtime (psycopg binary, docx, pdf)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages from builder
+COPY --from=builder /build/deps /app/deps
+
+# Copy application code (excludes dev dirs via .dockerignore)
+COPY app.py gunicorn.conf.py ./
+COPY scripts/ ./scripts/
+COPY templates/ ./templates/
+COPY static/ ./static/
+COPY prompts/ ./prompts/
+
+# Cloud Run injects $PORT; default 8080 matches Cloud Run convention
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8080}/health')" || exit 1
 
 CMD ["gunicorn", "--config", "gunicorn.conf.py", "app:app"]

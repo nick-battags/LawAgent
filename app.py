@@ -878,6 +878,444 @@ def v2_llm_status():
         return jsonify({"ollama_available": False, "mode": "deterministic"})
 
 
+# ── Demo mode guard ──────────────────────────────────────────────────────────
+
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+HUB_ENABLED = os.environ.get("HUB_ENABLED", "true").lower() not in ("false", "0", "no")
+INPUT_MAX_CHARS = 500
+
+
+def _demo_gate(f):
+    """Block corpus ingest/upload routes in DEMO_MODE."""
+    from functools import wraps
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if DEMO_MODE:
+            return jsonify({"error": "Corpus ingest disabled in demo mode"}), 403
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def _hub_enabled(f):
+    from functools import wraps
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not HUB_ENABLED:
+            return jsonify({"error": "Hub is currently disabled", "code": "HUB_DISABLED"}), 503
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def _pii_screen_request(text: str):
+    """Return 400 JSON response if text fails PII firewall, else None."""
+    from scripts.pii_firewall import screen
+    blocked, reason = screen(text)
+    if blocked:
+        return jsonify({"error": "Input blocked by content policy", "code": "PII_FILTER", "detail": reason}), 400
+    return None
+
+
+def _check_input_length(text: str):
+    if len(text) > INPUT_MAX_CHARS:
+        return jsonify({"error": f"Query exceeds {INPUT_MAX_CHARS} character limit", "code": "LENGTH_LIMIT"}), 400
+    return None
+
+
+# Wrap admin ingest routes with demo gate
+_original_edgar_ingest = app.view_functions.get("edgar_ingest")
+if _original_edgar_ingest:
+    app.view_functions["edgar_ingest"] = _demo_gate(_original_edgar_ingest)
+
+_original_v2_upload = app.view_functions.get("v2_upload_document")
+if _original_v2_upload:
+    app.view_functions["v2_upload_document"] = _demo_gate(_original_v2_upload)
+
+_original_ingest_deposits = app.view_functions.get("v2_ingest_deposits")
+if _original_ingest_deposits:
+    app.view_functions["v2_ingest_deposits"] = _demo_gate(_original_ingest_deposits)
+
+
+# ── Consent gate ─────────────────────────────────────────────────────────────
+
+import hashlib as _hashlib
+import hmac as _hmac
+_CONSENT_SECRET = os.environ.get("CONSENT_SECRET") or _secrets.token_hex(32)
+
+
+def _make_consent_token(ip: str) -> str:
+    msg = f"{ip}:{date.today().isoformat()}"
+    return _hmac.new(_CONSENT_SECRET.encode(), msg.encode(), _hashlib.sha256).hexdigest()[:32]
+
+
+def _valid_consent_token(token: str) -> bool:
+    if not DEMO_MODE:
+        return True
+    ip = request.remote_addr or ""
+    expected = _make_consent_token(ip)
+    return _hmac.compare_digest(token or "", expected)
+
+
+@app.post("/api/consent/accept")
+def consent_accept():
+    ip = request.remote_addr or ""
+    token = _make_consent_token(ip)
+    return jsonify({"token": token, "accepted": True})
+
+
+# ── Hub page ──────────────────────────────────────────────────────────────────
+
+@app.get("/hub")
+@app.get("/review")
+def hub_page():
+    if not HUB_ENABLED:
+        return redirect("/")
+    return render_template("review.html")
+
+
+# ── Hub in-memory session cache (supplements Postgres for fast status polls) ──
+
+_hub_sessions: dict[str, dict[str, Any]] = {}
+_hub_sessions_lock = threading.Lock()
+
+
+def _hub_store(session_id: str, data: dict[str, Any]) -> None:
+    with _hub_sessions_lock:
+        _hub_sessions[session_id] = data
+
+
+def _hub_load(session_id: str) -> dict[str, Any] | None:
+    with _hub_sessions_lock:
+        return _hub_sessions.get(session_id)
+
+
+# ── Hub submission routes ─────────────────────────────────────────────────────
+
+def _run_hub_background(mode: str, kwargs: dict[str, Any], session_id_holder: list[str]) -> None:
+    """Run hub pipeline in a thread; stores result in _hub_sessions."""
+    from scripts.hub_pipeline import run_hub_session
+    try:
+        result = run_hub_session(mode=mode, **kwargs)
+        sid = result["session_id"]
+        session_id_holder.append(sid)
+        _hub_store(sid, result)
+    except Exception:
+        logger.exception("Hub background task failed")
+
+
+def _submit_hub(mode: str) -> Response:
+    if not HUB_ENABLED:
+        return jsonify({"error": "Hub disabled"}), 503
+
+    sub_flag = f"HUB_{mode.upper()}_ENABLED"
+    if os.environ.get(sub_flag, "true").lower() in ("false", "0", "no"):
+        return jsonify({"error": f"Mode {mode} is disabled"}), 503
+
+    consent_token = request.headers.get("X-Consent-Token", "")
+    if DEMO_MODE and not _valid_consent_token(consent_token):
+        return jsonify({"error": "Consent required", "code": "CONSENT_REQUIRED"}), 403
+
+    # Input validation
+    prompt = request.form.get("prompt", "").strip()
+    if prompt:
+        err = _check_input_length(prompt)
+        if err:
+            return err
+        err = _pii_screen_request(prompt)
+        if err:
+            return err
+
+    posture = request.form.get("posture", "neutral")
+    doc_type = request.form.get("doc_type", "NDA")
+    governing_law = request.form.get("governing_law", "Delaware")
+
+    file_bytes: bytes | None = None
+    filename: str | None = None
+    if mode in ("revise", "review"):
+        uploaded = request.files.get("file")
+        if not uploaded or not uploaded.filename:
+            return jsonify({"error": "File required for this mode"}), 400
+        max_bytes = int(os.environ.get("HUB_MAX_BYTES", str(25 * 1024 * 1024)))
+        raw = uploaded.read()
+        if len(raw) > max_bytes:
+            return jsonify({"error": f"File exceeds {max_bytes // (1024*1024)} MB limit"}), 400
+        file_bytes = raw
+        filename = secure_filename(uploaded.filename)
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    kwargs: dict[str, Any] = {
+        "posture": posture,
+        "doc_type": doc_type,
+        "governing_law": governing_law,
+        "database_url": db_url or None,
+    }
+    if prompt:
+        kwargs["prompt"] = prompt
+    if file_bytes:
+        kwargs["file_bytes"] = file_bytes
+        kwargs["filename"] = filename
+
+    # Run synchronously for simplicity; in production wrap in a Cloud Run Job
+    from scripts.hub_pipeline import run_hub_session
+    try:
+        result = run_hub_session(mode=mode, **kwargs)
+        _hub_store(result["session_id"], result)
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("Hub %s failed", mode)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/v2/hub/generate")
+@_hub_enabled
+def hub_generate():
+    return _submit_hub("generate")
+
+
+@app.post("/api/v2/hub/revise")
+@_hub_enabled
+def hub_revise():
+    return _submit_hub("revise")
+
+
+@app.post("/api/v2/hub/review")
+@_hub_enabled
+def hub_review():
+    return _submit_hub("review")
+
+
+# ── Context attach ────────────────────────────────────────────────────────────
+
+@app.post("/api/v2/context/attach")
+@_hub_enabled
+def hub_context_attach():
+    consent_token = request.headers.get("X-Consent-Token", "")
+    if DEMO_MODE and not _valid_consent_token(consent_token):
+        return jsonify({"error": "Consent required"}), 403
+
+    session_id = request.args.get("session_id") or request.form.get("session_id", "")
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+
+    content = request.form.get("content", "").strip() or None
+    uploaded = request.files.get("file")
+    file_bytes: bytes | None = None
+    filename: str | None = None
+    if uploaded and uploaded.filename:
+        file_bytes = uploaded.read()
+        filename = secure_filename(uploaded.filename)
+
+    from scripts.context_loader import attach_context
+    result = attach_context(session_id, content=content, file_bytes=file_bytes, filename=filename)
+    code = 200 if result.get("status") == "ok" else 400
+    return jsonify(result), code
+
+
+# ── Hub status ────────────────────────────────────────────────────────────────
+
+@app.get("/api/v2/hub/<session_id>/status")
+def hub_status(session_id: str):
+    data = _hub_load(session_id)
+    if data:
+        return jsonify({"session_id": session_id, "status": data.get("status", "ready"),
+                        "changes": data.get("changes", []), "mode": data.get("mode"),
+                        "posture": data.get("posture"), "draft_text": data.get("draft_text", "")})
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            import psycopg
+            with psycopg.connect(db_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT status, mode, posture FROM hub_sessions WHERE id = %s",
+                        (session_id,),
+                    )
+                    row = cur.fetchone()
+            if row:
+                return jsonify({"session_id": session_id, "status": row[0], "mode": row[1], "posture": row[2]})
+        except Exception as exc:
+            logger.warning("Hub status DB lookup failed: %s", exc)
+    return jsonify({"error": "Session not found"}), 404
+
+
+# ── Per-change actions ────────────────────────────────────────────────────────
+
+@app.route("/api/v2/hub/<session_id>/changes/<change_id>", methods=["PATCH"])
+def hub_change_action(session_id: str, change_id: str):
+    consent_token = request.headers.get("X-Consent-Token", "")
+    if DEMO_MODE and not _valid_consent_token(consent_token):
+        return jsonify({"error": "Consent required"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    action = payload.get("action", "")
+    edited_text = payload.get("edited_text")
+
+    valid_actions = {"accept", "reject", "edit", "dismiss"}
+    if action not in valid_actions:
+        return jsonify({"error": f"action must be one of {valid_actions}"}), 400
+
+    # Update in-memory session
+    data = _hub_load(session_id)
+    if data:
+        for c in data.get("changes", []):
+            if c.get("id") == change_id or c.get("change_id") == change_id:
+                c["current_action"] = action
+                if edited_text is not None:
+                    c["current_text"] = edited_text
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            import psycopg
+            from datetime import datetime, timezone as tz
+            update_sql = """
+                UPDATE hub_changes
+                SET current_action = %s,
+                    current_text = COALESCE(%s, current_text)
+                WHERE id = %s AND session_id = %s
+            """
+            with psycopg.connect(db_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(update_sql, (action, edited_text, change_id, session_id))
+                    # Bump last_activity_at on the session
+                    cur.execute(
+                        "UPDATE hub_sessions SET last_activity_at = NOW() WHERE id = %s",
+                        (session_id,),
+                    )
+                conn.commit()
+        except Exception as exc:
+            logger.warning("Hub change action DB update failed: %s", exc)
+
+    return jsonify({"session_id": session_id, "change_id": change_id, "action": action})
+
+
+# ── Anchored chat ─────────────────────────────────────────────────────────────
+
+@app.post("/api/v2/hub/<session_id>/ask")
+@_hub_enabled
+def hub_ask(session_id: str):
+    consent_token = request.headers.get("X-Consent-Token", "")
+    if DEMO_MODE and not _valid_consent_token(consent_token):
+        return jsonify({"error": "Consent required"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    question = str(payload.get("question", "")).strip()
+    clause_anchor = str(payload.get("clause_anchor", "")).strip()
+
+    if not question:
+        return jsonify({"error": "question is required"}), 400
+
+    err = _check_input_length(question)
+    if err:
+        return err
+    err = _pii_screen_request(question)
+    if err:
+        return err
+
+    from scripts.hub_chat import ask_clause
+
+    def generate():
+        yield "data: {\"meta\": \"start\"}\n\n"
+        for chunk in ask_clause(session_id, clause_anchor, question):
+            import json as _json
+            yield f"data: {_json.dumps({'token': chunk})}\n\n"
+        yield "data: {\"done\": true}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── Bake (save & download) ────────────────────────────────────────────────────
+
+@app.post("/api/v2/hub/<session_id>/bake")
+@_hub_enabled
+def hub_bake(session_id: str):
+    consent_token = request.headers.get("X-Consent-Token", "")
+    if DEMO_MODE and not _valid_consent_token(consent_token):
+        return jsonify({"error": "Consent required"}), 403
+
+    data = _hub_load(session_id)
+    if not data:
+        return jsonify({"error": "Session not found or expired"}), 404
+
+    from scripts.hub_export import bake_session
+    try:
+        artifacts = bake_session(
+            session_id=session_id,
+            draft_text=data.get("draft_text", ""),
+            changes=data.get("changes", []),
+            decisions=data.get("decisions", []),
+            posture=data.get("posture", "neutral"),
+            gcs_prefix=data.get("gcs_prefix"),
+        )
+        # Store artifact refs in session so download links work
+        if data:
+            data["artifacts"] = artifacts
+        return jsonify({k: v for k, v in artifacts.items() if not k.endswith("_bytes")})
+    except Exception as exc:
+        logger.exception("Hub bake failed for session %s", session_id)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/v2/hub/<session_id>/download/<artifact_name>")
+def hub_download(session_id: str, artifact_name: str):
+    safe_names = {"redline.docx", "clean.docx", "memo.docx", "register.json"}
+    if artifact_name not in safe_names:
+        return jsonify({"error": "Unknown artifact"}), 404
+
+    data = _hub_load(session_id)
+    if not data or "artifacts" not in data:
+        return jsonify({"error": "Session not found or not yet baked"}), 404
+
+    key = artifact_name + "_bytes"
+    blob = data["artifacts"].get(key)
+    if not blob:
+        # Try GCS redirect
+        gcs_uri = data["artifacts"].get(artifact_name, "")
+        if gcs_uri:
+            # In production use a signed URL; for now redirect to a placeholder
+            return jsonify({"gcs_uri": gcs_uri}), 200
+        return jsonify({"error": "Artifact not available"}), 404
+
+    mime = "application/json" if artifact_name.endswith(".json") else \
+           "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return Response(
+        blob,
+        mimetype=mime,
+        headers={"Content-Disposition": f"attachment; filename={artifact_name}"},
+    )
+
+
+# ── Hub delete ────────────────────────────────────────────────────────────────
+
+@app.delete("/api/v2/hub/<session_id>")
+def hub_delete(session_id: str):
+    consent_token = request.headers.get("X-Consent-Token", "")
+    if DEMO_MODE and not _valid_consent_token(consent_token):
+        return jsonify({"error": "Consent required"}), 403
+
+    with _hub_sessions_lock:
+        _hub_sessions.pop(session_id, None)
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            import psycopg
+            with psycopg.connect(db_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM hub_sessions WHERE id = %s", (session_id,))
+                conn.commit()
+        except Exception as exc:
+            logger.warning("Hub delete DB failed for session %s: %s", session_id, exc)
+
+    try:
+        from scripts.session_memory import get_session_memory
+        get_session_memory(session_id).clear()
+    except Exception:
+        pass
+
+    return jsonify({"deleted": True, "session_id": session_id})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true", "yes"}
