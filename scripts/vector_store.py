@@ -24,6 +24,32 @@ logger = logging.getLogger(__name__)
 _store: VectorStore | None = None
 _store_lock = threading.Lock()
 
+_demo_store: Any = None
+_demo_store_lock = threading.Lock()
+
+
+def get_demo_vector_store() -> Any:
+    """Return the demo-mode retrieval store (SupermemoryCorpusStore or VectorStore).
+
+    Dispatches on VECTOR_BACKEND env var:
+      - "supermemory" → SupermemoryCorpusStore backed by Supermemory API
+      - anything else → falls through to the standard ChromaDB VectorStore
+    """
+    global _demo_store
+    if _demo_store is None:
+        with _demo_store_lock:
+            if _demo_store is None:
+                backend = os.environ.get("VECTOR_BACKEND", "chromadb").lower()
+                if backend == "supermemory":
+                    from scripts.supermemory_store import SupermemoryCorpusStore
+                    _demo_store = SupermemoryCorpusStore()
+                    logger.info("Demo vector store: SupermemoryCorpusStore (tag=%s)",
+                                os.environ.get("SUPERMEMORY_CORPUS_TAG", "lawagent-corpus"))
+                else:
+                    _demo_store = get_vector_store()
+                    logger.info("Demo vector store: ChromaDB VectorStore (VECTOR_BACKEND=%s)", backend)
+    return _demo_store
+
 
 def get_vector_store() -> VectorStore:
     global _store
