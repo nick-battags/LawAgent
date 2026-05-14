@@ -94,9 +94,9 @@ def _build_redline_docx(draft_text: str, accepted_changes: list[dict[str, Any]])
     from docx import Document
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
-    import lxml.etree as etree
 
     doc = Document()
+    rev_id = 1  # OOXML requires unique w:id across all revision marks in the document
 
     paragraphs = draft_text.split("\n") if draft_text else ["[No draft text]"]
     for para_text in paragraphs:
@@ -122,23 +122,27 @@ def _build_redline_docx(draft_text: str, accepted_changes: list[dict[str, Any]])
             if before:
                 p.add_run(before)
 
-            # Deletion run
+            # Deletion: w:del → w:r → w:delText  (w:r wrapper required by OOXML schema)
             del_run = OxmlElement("w:del")
-            del_run.set(qn("w:id"), "1")
+            del_run.set(qn("w:id"), str(rev_id)); rev_id += 1
             del_run.set(qn("w:author"), "LawAgent")
             del_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
+            del_r = OxmlElement("w:r")
             del_text = OxmlElement("w:delText")
+            del_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
             del_text.text = original
-            del_run.append(del_text)
+            del_r.append(del_text)
+            del_run.append(del_r)
             p._element.append(del_run)
 
-            # Insertion run
+            # Insertion: w:ins → w:r → w:t
             ins_run = OxmlElement("w:ins")
-            ins_run.set(qn("w:id"), "2")
+            ins_run.set(qn("w:id"), str(rev_id)); rev_id += 1
             ins_run.set(qn("w:author"), "LawAgent")
             ins_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
             ins_r = OxmlElement("w:r")
             ins_text = OxmlElement("w:t")
+            ins_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
             ins_text.text = replacement
             ins_r.append(ins_text)
             ins_run.append(ins_r)

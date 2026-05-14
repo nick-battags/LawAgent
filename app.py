@@ -1025,6 +1025,12 @@ def _submit_hub(mode: str) -> Response:
             return err
 
     posture = request.form.get("posture", "neutral")
+    if posture not in {"buy", "sell", "neutral"}:
+        return jsonify({"error": "posture must be buy, sell, or neutral"}), 400
+
+    if mode == "revise" and not prompt:
+        return jsonify({"error": "prompt is required for revise mode"}), 400
+
     doc_type = request.form.get("doc_type", "NDA")
     governing_law = request.form.get("governing_law", "Delaware")
 
@@ -1248,9 +1254,16 @@ def hub_bake(session_id: str):
             gcs_prefix=data.get("gcs_prefix"),
         )
         # Store artifact refs in session so download links work
-        if data:
-            data["artifacts"] = artifacts
-        return jsonify({k: v for k, v in artifacts.items() if not k.endswith("_bytes")})
+        data["artifacts"] = artifacts
+        # Always return artifact name → download endpoint (works with or without GCS)
+        artifact_names = (
+            [k.replace("_bytes", "") for k in artifacts if k.endswith("_bytes")]
+            or [k for k in artifacts if not k.endswith("_bytes")]
+        )
+        return jsonify({
+            name: f"/api/v2/hub/{session_id}/download/{name}"
+            for name in artifact_names
+        })
     except Exception as exc:
         logger.exception("Hub bake failed for session %s", session_id)
         return jsonify({"error": str(exc)}), 500
@@ -1281,7 +1294,7 @@ def hub_download(session_id: str, artifact_name: str):
     return Response(
         blob,
         mimetype=mime,
-        headers={"Content-Disposition": f"attachment; filename={artifact_name}"},
+        headers={"Content-Disposition": f'attachment; filename="{artifact_name}"'},
     )
 
 

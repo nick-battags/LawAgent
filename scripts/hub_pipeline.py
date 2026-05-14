@@ -505,7 +505,15 @@ def run_hub_session(
         change_ids: list[str] = []
         if db_url:
             change_ids = _persist_changes(session_id, all_changes, db_url)
+            # Write DB-assigned UUIDs back into change dicts so PATCH can match by id
+            for c, cid in zip(all_changes, change_ids):
+                c["id"] = cid
             _update_session_status(session_id, "ready", db_url)
+        else:
+            # No DB — assign in-process UUIDs so PATCH still works
+            import uuid as _uuid
+            for c in all_changes:
+                c["id"] = str(_uuid.uuid4())
 
         logger.info(
             "Hub session %s (%s/%s) complete: %d redlines, %d missing clauses",
