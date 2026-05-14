@@ -88,8 +88,9 @@ class _SessionAnonymizer:
         """Reverse all placeholders in anonymized_text back to originals."""
         with self._lock:
             result = anonymized_text
-            for placeholder, original in self._map.items():
-                result = result.replace(placeholder, original)
+            # Sort by descending length to prevent [PARTY_1] clobbering [PARTY_10]
+            for placeholder in sorted(self._map.keys(), key=len, reverse=True):
+                result = result.replace(placeholder, self._map[placeholder])
             return result
 
     def snapshot(self) -> dict[str, str]:

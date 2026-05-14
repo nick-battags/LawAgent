@@ -113,43 +113,50 @@ def _build_redline_docx(draft_text: str, accepted_changes: list[dict[str, Any]])
         ]
 
         if matching:
-            change = matching[0]
-            original = change["original_text"]
-            replacement = change.get("current_text") or change.get("proposed_text", "")
-            before = para_text[:para_text.index(original)]
-            after = para_text[para_text.index(original) + len(original):]
+            # Apply all matching changes sequentially, tracking offset into remaining text
+            remaining = para_text
+            for change in matching:
+                original = change["original_text"]
+                replacement = change.get("current_text") or change.get("proposed_text", "")
+                if original not in remaining:
+                    continue
+                idx = remaining.index(original)
+                before = remaining[:idx]
+                after = remaining[idx + len(original):]
 
-            if before:
-                p.add_run(before)
+                if before:
+                    p.add_run(before)
 
-            # Deletion: w:del → w:r → w:delText  (w:r wrapper required by OOXML schema)
-            del_run = OxmlElement("w:del")
-            del_run.set(qn("w:id"), str(rev_id)); rev_id += 1
-            del_run.set(qn("w:author"), "LawAgent")
-            del_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
-            del_r = OxmlElement("w:r")
-            del_text = OxmlElement("w:delText")
-            del_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            del_text.text = original
-            del_r.append(del_text)
-            del_run.append(del_r)
-            p._element.append(del_run)
+                # Deletion: w:del → w:r → w:delText  (w:r wrapper required by OOXML schema)
+                del_run = OxmlElement("w:del")
+                del_run.set(qn("w:id"), str(rev_id)); rev_id += 1
+                del_run.set(qn("w:author"), "LawAgent")
+                del_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
+                del_r = OxmlElement("w:r")
+                del_text = OxmlElement("w:delText")
+                del_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                del_text.text = original
+                del_r.append(del_text)
+                del_run.append(del_r)
+                p._element.append(del_run)
 
-            # Insertion: w:ins → w:r → w:t
-            ins_run = OxmlElement("w:ins")
-            ins_run.set(qn("w:id"), str(rev_id)); rev_id += 1
-            ins_run.set(qn("w:author"), "LawAgent")
-            ins_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
-            ins_r = OxmlElement("w:r")
-            ins_text = OxmlElement("w:t")
-            ins_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            ins_text.text = replacement
-            ins_r.append(ins_text)
-            ins_run.append(ins_r)
-            p._element.append(ins_run)
+                # Insertion: w:ins → w:r → w:t
+                ins_run = OxmlElement("w:ins")
+                ins_run.set(qn("w:id"), str(rev_id)); rev_id += 1
+                ins_run.set(qn("w:author"), "LawAgent")
+                ins_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
+                ins_r = OxmlElement("w:r")
+                ins_text = OxmlElement("w:t")
+                ins_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                ins_text.text = replacement
+                ins_r.append(ins_text)
+                ins_run.append(ins_r)
+                p._element.append(ins_run)
 
-            if after:
-                p.add_run(after)
+                remaining = after  # continue from after this change
+
+            if remaining:
+                p.add_run(remaining)
         else:
             p.add_run(para_text)
 

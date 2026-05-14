@@ -973,19 +973,40 @@ def hub_page():
 
 
 # ── Hub in-memory session cache (supplements Postgres for fast status polls) ──
+# TTL-based eviction: sessions older than HUB_TTL_MINUTES (default 1440 = 24h)
+# are purged on each store/load to prevent unbounded memory growth.
 
 _hub_sessions: dict[str, dict[str, Any]] = {}
 _hub_sessions_lock = threading.Lock()
+_HUB_SESSION_TTL = int(os.environ.get("HUB_TTL_MINUTES", "1440")) * 60  # seconds
+
+
+def _hub_evict_expired() -> None:
+    """Remove sessions older than TTL. Must be called inside _hub_sessions_lock."""
+    import time
+    cutoff = time.time() - _HUB_SESSION_TTL
+    expired = [sid for sid, d in _hub_sessions.items() if d.get("_stored_at", 0) < cutoff]
+    for sid in expired:
+        del _hub_sessions[sid]
 
 
 def _hub_store(session_id: str, data: dict[str, Any]) -> None:
+    import time
     with _hub_sessions_lock:
+        data["_stored_at"] = time.time()
         _hub_sessions[session_id] = data
+        _hub_evict_expired()
 
 
 def _hub_load(session_id: str) -> dict[str, Any] | None:
+    import time
     with _hub_sessions_lock:
-        return _hub_sessions.get(session_id)
+        _hub_evict_expired()
+        d = _hub_sessions.get(session_id)
+        if d and time.time() - d.get("_stored_at", 0) > _HUB_SESSION_TTL:
+            del _hub_sessions[session_id]
+            return None
+        return d
 
 
 # ── Hub submission routes ─────────────────────────────────────────────────────
@@ -1136,8 +1157,22 @@ def hub_status(session_id: str):
                         (session_id,),
                     )
                     row = cur.fetchone()
+                    if row:
+                        cur.execute(
+                            """SELECT id, clause_anchor, category, severity, kind,
+                                      original_text, proposed_text, rationale, source_ref,
+                                      current_action, current_text
+                               FROM hub_changes WHERE session_id = %s ORDER BY created_at""",
+                            (session_id,),
+                        )
+                        cols = [d[0] for d in cur.description]
+                        changes = [dict(zip(cols, r)) for r in cur.fetchall()]
             if row:
-                return jsonify({"session_id": session_id, "status": row[0], "mode": row[1], "posture": row[2]})
+                return jsonify({
+                    "session_id": session_id,
+                    "status": row[0], "mode": row[1], "posture": row[2],
+                    "changes": changes, "draft_text": "",  # draft_text not persisted to DB
+                })
         except Exception as exc:
             logger.warning("Hub status DB lookup failed: %s", exc)
     return jsonify({"error": "Session not found"}), 404
