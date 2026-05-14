@@ -272,7 +272,18 @@
 
   function startPolling(sessionId) {
     clearInterval(pollInterval);
+    let pollCount = 0;
+    const MAX_POLLS = 120; // 120 × 2.5s = 5 minutes timeout
     pollInterval = setInterval(async () => {
+      pollCount++;
+      if (pollCount > MAX_POLLS) {
+        clearInterval(pollInterval);
+        alert('Hub processing timed out. The server may still be working — refresh to check.');
+        submitBtn.disabled = false;
+        submitLabel.hidden = false;
+        submitSpinner.hidden = true;
+        return;
+      }
       try {
         const r = await fetch(`/api/v2/hub/${sessionId}/status`);
         if (!r.ok) return;
@@ -280,9 +291,10 @@
         if (data.status === 'ready') {
           clearInterval(pollInterval);
           openEditingHub(data);
-        } else if (data.status === 'failed') {
+        } else if (data.status === 'failed' || data.status === 'error') {
           clearInterval(pollInterval);
-          alert('Hub processing failed. Please try again.');
+          const msg = data.error ? `Hub processing failed: ${data.error}` : 'Hub processing failed. Please try again.';
+          alert(msg);
           submitBtn.disabled = false;
           submitLabel.hidden = false;
           submitSpinner.hidden = true;

@@ -1011,16 +1011,23 @@ def _hub_load(session_id: str) -> dict[str, Any] | None:
 
 # ── Hub submission routes ─────────────────────────────────────────────────────
 
-def _run_hub_background(mode: str, kwargs: dict[str, Any], session_id_holder: list[str]) -> None:
-    """Run hub pipeline in a thread; stores result in _hub_sessions."""
+def _run_hub_background(mode: str, session_id: str, kwargs: dict[str, Any]) -> None:
+    """Run hub pipeline in a background thread; writes result into _hub_sessions."""
     from scripts.hub_pipeline import run_hub_session
     try:
-        result = run_hub_session(mode=mode, **kwargs)
-        sid = result["session_id"]
-        session_id_holder.append(sid)
-        _hub_store(sid, result)
-    except Exception:
-        logger.exception("Hub background task failed")
+        result = run_hub_session(mode=mode, session_id=session_id, **kwargs)
+        result["status"] = result.get("status", "ready")
+        _hub_store(session_id, result)
+        logger.info("Hub background task complete for session %s", session_id)
+    except Exception as exc:
+        logger.exception("Hub background task failed for session %s", session_id)
+        _hub_store(session_id, {
+            "session_id": session_id,
+            "status": "error",
+            "error": str(exc),
+            "mode": mode,
+            "changes": [],
+        })
 
 
 def _submit_hub(mode: str) -> Response:
@@ -1068,6 +1075,9 @@ def _submit_hub(mode: str) -> Response:
         file_bytes = raw
         filename = secure_filename(uploaded.filename)
 
+    import uuid as _uuid
+    session_id = str(_uuid.uuid4())
+
     db_url = os.environ.get("DATABASE_URL", "")
     kwargs: dict[str, Any] = {
         "posture": posture,
@@ -1081,15 +1091,25 @@ def _submit_hub(mode: str) -> Response:
         kwargs["file_bytes"] = file_bytes
         kwargs["filename"] = filename
 
-    # Run synchronously for simplicity; in production wrap in a Cloud Run Job
-    from scripts.hub_pipeline import run_hub_session
-    try:
-        result = run_hub_session(mode=mode, **kwargs)
-        _hub_store(result["session_id"], result)
-        return jsonify(result)
-    except Exception as exc:
-        logger.exception("Hub %s failed", mode)
-        return jsonify({"error": str(exc)}), 500
+    # Store a "running" placeholder immediately so the status endpoint works
+    _hub_store(session_id, {
+        "session_id": session_id,
+        "status": "running",
+        "mode": mode,
+        "posture": posture,
+        "changes": [],
+        "draft_text": "",
+    })
+
+    # Launch pipeline in background thread; return 202 immediately
+    t = threading.Thread(
+        target=_run_hub_background,
+        args=(mode, session_id, kwargs),
+        daemon=True,
+    )
+    t.start()
+
+    return jsonify({"session_id": session_id, "status": "running"}), 202
 
 
 @app.post("/api/v2/hub/generate")
