@@ -1165,9 +1165,17 @@ def hub_context_attach():
 def hub_status(session_id: str):
     data = _hub_load(session_id)
     if data:
-        return jsonify({"session_id": session_id, "status": data.get("status", "ready"),
-                        "changes": data.get("changes", []), "mode": data.get("mode"),
-                        "posture": data.get("posture"), "draft_text": data.get("draft_text", "")})
+        resp: dict[str, Any] = {
+            "session_id": session_id,
+            "status": data.get("status", "ready"),
+            "changes": data.get("changes", []),
+            "mode": data.get("mode"),
+            "posture": data.get("posture"),
+            "draft_text": data.get("draft_text", ""),
+        }
+        if data.get("error"):
+            resp["error"] = data["error"]
+        return jsonify(resp)
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
         try:
