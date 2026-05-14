@@ -274,13 +274,27 @@
     clearInterval(pollInterval);
     let pollCount = 0;
     const MAX_POLLS = 120; // 120 × 2.5s = 5 minutes timeout
+    const t0 = Date.now();
+    // Update the spinner label with elapsed time + stage guess so the
+    // user isn't staring at a blank spinner during the 60-120s pipeline
+    const updateProgress = () => {
+      const sec = Math.floor((Date.now() - t0) / 1000);
+      let stage = 'Retrieving corpus & drafting…';
+      if (sec > 30) stage = 'Spotting issues & proposing missing clauses…';
+      if (sec > 90) stage = 'Finalizing changes…';
+      if (submitLabel) submitLabel.textContent = `${stage} (${sec}s)`;
+    };
+    updateProgress();
+    if (submitLabel) submitLabel.hidden = false; // show the label alongside the spinner
     pollInterval = setInterval(async () => {
       pollCount++;
+      updateProgress();
       if (pollCount > MAX_POLLS) {
         clearInterval(pollInterval);
         alert('Hub processing timed out. The server may still be working — refresh to check.');
         submitBtn.disabled = false;
         submitLabel.hidden = false;
+        if (submitLabel) submitLabel.textContent = 'Generate first draft';
         submitSpinner.hidden = true;
         return;
       }
@@ -290,6 +304,7 @@
         const data = await r.json();
         if (data.status === 'ready') {
           clearInterval(pollInterval);
+          if (submitLabel) submitLabel.textContent = 'Generate first draft';
           openEditingHub(data);
         } else if (data.status === 'failed' || data.status === 'error') {
           clearInterval(pollInterval);
@@ -297,6 +312,7 @@
           alert(msg);
           submitBtn.disabled = false;
           submitLabel.hidden = false;
+          if (submitLabel) submitLabel.textContent = 'Generate first draft';
           submitSpinner.hidden = true;
         }
       } catch { /* retry next tick */ }

@@ -1225,6 +1225,15 @@ def hub_change_action(session_id: str, change_id: str):
     if action not in valid_actions:
         return jsonify({"error": f"action must be one of {valid_actions}"}), 400
 
+    # Normalize verb → past tense to match the hub_action ENUM and the artifact
+    # builders that filter on ("accepted", "rejected", "edited", "dismissed").
+    action_canonical = {
+        "accept": "accepted",
+        "reject": "rejected",
+        "edit": "edited",
+        "dismiss": "dismissed",
+    }[action]
+
     # Update in-memory session under the lock to avoid race with evict / concurrent PATCH
     with _hub_sessions_lock:
         _hub_evict_expired()
@@ -1232,7 +1241,7 @@ def hub_change_action(session_id: str, change_id: str):
         if data:
             for c in data.get("changes", []):
                 if c.get("id") == change_id or c.get("change_id") == change_id:
-                    c["current_action"] = action
+                    c["current_action"] = action_canonical
                     if edited_text is not None:
                         c["current_text"] = edited_text
                     break
@@ -1250,7 +1259,7 @@ def hub_change_action(session_id: str, change_id: str):
             """
             with psycopg.connect(db_url) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(update_sql, (action, edited_text, change_id, session_id))
+                    cur.execute(update_sql, (action_canonical, edited_text, change_id, session_id))
                     # Bump last_activity_at on the session
                     cur.execute(
                         "UPDATE hub_sessions SET last_activity_at = NOW() WHERE id = %s",
@@ -1260,7 +1269,7 @@ def hub_change_action(session_id: str, change_id: str):
         except Exception as exc:
             logger.warning("Hub change action DB update failed: %s", exc)
 
-    return jsonify({"session_id": session_id, "change_id": change_id, "action": action})
+    return jsonify({"session_id": session_id, "change_id": change_id, "action": action_canonical})
 
 
 # ── Anchored chat ─────────────────────────────────────────────────────────────

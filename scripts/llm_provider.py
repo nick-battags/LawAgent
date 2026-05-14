@@ -94,10 +94,13 @@ class VertexProvider:
                 if self._genai_client is None:
                     try:
                         from google import genai
+                        from google.genai import types as genai_types
+                        # http_options.timeout is in MILLISECONDS — convert from self.timeout (seconds)
                         self._genai_client = genai.Client(
                             vertexai=True,
                             project=self.project,
                             location=self.location,
+                            http_options=genai_types.HttpOptions(timeout=self.timeout * 1000),
                         )
                     except Exception as exc:
                         self._last_error = str(exc)
