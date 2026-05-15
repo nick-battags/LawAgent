@@ -878,6 +878,44 @@ def v2_llm_status():
         return jsonify({"ollama_available": False, "mode": "deterministic"})
 
 
+@app.get("/api/v2/corpus/diagnostic")
+def v2_corpus_diagnostic():
+    """Public diagnostic for the demo corpus retrieval path.
+
+    Reports the active VECTOR_BACKEND, the count of indexed chunks, and a
+    sample retrieval against a fixed M&A query so it's obvious whether
+    Cohere Embed v4 + pgvector are actually being exercised. Safe to expose
+    publicly because it returns metadata only — no chunk text spans, no PII.
+    """
+    try:
+        from scripts.vector_store import get_demo_vector_store
+        store = get_demo_vector_store()
+        status = store.status() if hasattr(store, "status") else {}
+        sample_chunks = []
+        try:
+            sample = store.query("indemnification basket and cap for buy-side", top_k=3)
+            sample_chunks = [
+                {
+                    "title": c.get("title", ""),
+                    "category": c.get("category", ""),
+                    "score": c.get("score", 0),
+                    "source_system": c.get("source_system", ""),
+                }
+                for c in sample
+            ]
+        except Exception as exc:
+            logger.warning("Corpus diagnostic query failed: %s", exc)
+        return jsonify({
+            "backend": os.environ.get("VECTOR_BACKEND", "chromadb"),
+            "status": status,
+            "sample_query": "indemnification basket and cap for buy-side",
+            "sample_results_count": len(sample_chunks),
+            "sample_titles": sample_chunks,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── Demo mode guard ──────────────────────────────────────────────────────────
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")

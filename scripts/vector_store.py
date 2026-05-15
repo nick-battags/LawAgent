@@ -29,22 +29,35 @@ _demo_store_lock = threading.Lock()
 
 
 def get_demo_vector_store() -> Any:
-    """Return the demo-mode retrieval store (SupermemoryCorpusStore or VectorStore).
+    """Return the demo-mode retrieval store.
 
-    Dispatches on VECTOR_BACKEND env var:
-      - "supermemory" → SupermemoryCorpusStore backed by Supermemory API
-      - anything else → falls through to the standard ChromaDB VectorStore
+    Dispatches on VECTOR_BACKEND env var (Master Plan rev 2.4 § Locked decisions
+    and 02c_Editing_Hub.md § Pipeline lock the canonical path to pgvector):
+
+      - "pgvector"   → PgvectorCorpusStore (Cohere Embed v4 → Neon pgvector).
+                       This is the canonical demo backend per the planning docs.
+      - "supermemory" → SupermemoryCorpusStore (Supermemory native search,
+                        bypasses Cohere). Kept for back-compat / fallback only;
+                        Supermemory is intended for per-session writes only.
+      - anything else (default) → ChromaDB VectorStore for local dev.
     """
     global _demo_store
     if _demo_store is None:
         with _demo_store_lock:
             if _demo_store is None:
                 backend = os.environ.get("VECTOR_BACKEND", "chromadb").lower()
-                if backend == "supermemory":
+                if backend == "pgvector":
+                    from scripts.pgvector_store import PgvectorCorpusStore
+                    _demo_store = PgvectorCorpusStore()
+                    logger.info("Demo vector store: PgvectorCorpusStore (Cohere Embed v4 → Neon pgvector)")
+                elif backend == "supermemory":
                     from scripts.supermemory_store import SupermemoryCorpusStore
                     _demo_store = SupermemoryCorpusStore()
-                    logger.info("Demo vector store: SupermemoryCorpusStore (tag=%s)",
-                                os.environ.get("SUPERMEMORY_CORPUS_TAG", "lawagent-corpus"))
+                    logger.warning(
+                        "Demo vector store: SupermemoryCorpusStore (tag=%s) — note: this "
+                        "bypasses Cohere; the planned canonical path is VECTOR_BACKEND=pgvector",
+                        os.environ.get("SUPERMEMORY_CORPUS_TAG", "lawagent-corpus"),
+                    )
                 else:
                     _demo_store = get_vector_store()
                     logger.info("Demo vector store: ChromaDB VectorStore (VECTOR_BACKEND=%s)", backend)
