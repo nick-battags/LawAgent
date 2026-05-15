@@ -485,7 +485,7 @@ class OllamaProvider:
             self._models = []
             self._active_url = None
             self._active_backend = "none"
-            logger.info("No reachable Ollama endpoints in OLLAMA_BASE_URLS; deterministic fallback active")
+            logger.debug("No reachable Ollama endpoints in OLLAMA_BASE_URLS; deterministic fallback active")
             return False
 
     def reset_availability(self) -> None:

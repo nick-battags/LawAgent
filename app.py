@@ -848,9 +848,9 @@ def _startup_vector_sync():
         store = get_vector_store()
         if store.count() == 0:
             state = _start_vector_sync("startup sync", trigger="startup")
-            logger.info("Startup vector sync triggered: %s", state.get("status"))
+            logger.debug("Startup vector sync triggered: %s", state.get("status"))
         else:
-            logger.info("ChromaDB already has %d vectors, skipping startup sync", store.count())
+            logger.debug("ChromaDB already has %d vectors, skipping startup sync", store.count())
     except Exception:
         logger.warning("Startup vector sync skipped (non-fatal): %s", traceback.format_exc())
 

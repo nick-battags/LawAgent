@@ -97,7 +97,7 @@ class VectorStore:
                 self._last_vector_count = self.collection.count()
             else:
                 raise
-        logger.info(
+        logger.debug(
             "ChromaDB initialized (%s): %d vectors in collection",
             self._embedding_label,
             self._last_vector_count,
@@ -172,7 +172,7 @@ class VectorStore:
         self._active_embedding_url = None
         self._active_embedding_backend = "none"
         self._embedding_label = "default/all-MiniLM-L6-v2"
-        logger.info("No reachable Ollama embedding endpoints; using ChromaDB default embedding")
+        logger.debug("No reachable Ollama embedding endpoints; using ChromaDB default embedding")
         return chromadb.utils.embedding_functions.DefaultEmbeddingFunction()
 
     def _switch_embedding_endpoint(self, exclude: set[str] | None = None) -> bool:
@@ -339,7 +339,7 @@ class VectorStore:
         db = get_db()
         chunks = db.get_all_chunks()
         if not chunks:
-            logger.info("No chunks in PostgreSQL to sync")
+            logger.debug("No chunks in PostgreSQL to sync")
             return {"synced": 0, "total": self.collection.count()}
 
         with self._lock:
@@ -354,7 +354,7 @@ class VectorStore:
             except Exception:
                 after = self._last_vector_count
 
-        logger.info(
+        logger.debug(
             "Vector sync complete: %d chunks processed (before=%d, after=%d)",
             added,
             before,
