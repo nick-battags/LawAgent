@@ -205,6 +205,44 @@ def index():
     return redirect("/hub")
 
 
+# PyJWKClient instances keyed by team domain — PyJWT handles JWKS caching internally
+_CF_JWKS_CLIENTS: dict[str, Any] = {}
+
+
+def _cf_access_valid() -> bool:
+    """Validate a Cloudflare Access JWT from the Cf-Access-Jwt-Assertion header.
+
+    Returns True when validation passes or when CF Access is not configured
+    (dev mode).  Returns False only when CF env vars are set but the token is
+    absent or fails verification.
+    """
+    team_domain = os.environ.get("CF_ACCESS_TEAM_DOMAIN", "")
+    aud = os.environ.get("CF_ACCESS_AUD", "")
+    if not team_domain or not aud:
+        return True  # dev / local — gate is a no-op
+
+    token = request.headers.get("Cf-Access-Jwt-Assertion", "")
+    if not token:
+        return False
+
+    try:
+        import jwt as _jwt
+        if team_domain not in _CF_JWKS_CLIENTS:
+            _CF_JWKS_CLIENTS[team_domain] = _jwt.PyJWKClient(
+                f"https://{team_domain}/cdn-cgi/access/certs"
+            )
+        client = _CF_JWKS_CLIENTS[team_domain]
+        signing_key = client.get_signing_key_from_jwt(token)
+        _jwt.decode(token, signing_key.key, algorithms=["RS256", "ES256"], audience=aud)
+        return True
+    except Exception as exc:
+        logger.warning("CF Access JWT validation failed: %s", exc)
+        return False
+
+
+_CF_PUBLIC_HOST = "lawagent.nickvbattaglia.com"
+
+
 def _admin_authed() -> bool:
     if not ADMIN_PIN:
         logger.warning("ADMIN_PIN not set - admin access disabled for safety. Set ADMIN_PIN to enable admin features.")
@@ -224,6 +262,13 @@ def _require_admin(f):
 
 @app.get("/admin")
 def admin():
+    # On the public hostname, validate CF Access JWT; return 404 on failure to
+    # avoid leaking that an admin route exists.
+    if request.host == _CF_PUBLIC_HOST:
+        if not _cf_access_valid():
+            return Response(status=404)
+        session["admin_authed"] = True
+
     if not _admin_authed():
         return redirect(url_for("admin_login"))
     return render_template("admin.html")
@@ -231,6 +276,10 @@ def admin():
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
+    # On the public hostname, hide the login page behind the CF gate too.
+    if request.host == _CF_PUBLIC_HOST and not _cf_access_valid():
+        return Response(status=404)
+
     if not ADMIN_PIN:
         return redirect(url_for("admin"))
     error = ""
@@ -1450,6 +1499,90 @@ def hub_delete(session_id: str):
         pass
 
     return jsonify({"deleted": True, "session_id": session_id})
+
+
+# ── Admin: Hub observability ───────────────────────────────────────────────────
+
+@app.get("/api/admin/hub/sessions")
+@_require_admin
+def admin_hub_sessions():
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        return jsonify({"error": "No database configured"}), 503
+    try:
+        import psycopg
+        with psycopg.connect(db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                        s.id, s.mode, s.posture, s.status,
+                        s.created_at, s.last_activity_at,
+                        COUNT(c.id)                                                  AS change_count,
+                        COUNT(c.id) FILTER (WHERE c.kind = 'redline')               AS redline_count,
+                        COUNT(c.id) FILTER (WHERE c.kind = 'missing_clause')        AS missing_count,
+                        COUNT(c.id) FILTER (WHERE c.current_action = 'accepted')    AS accepted_count,
+                        COUNT(c.id) FILTER (WHERE c.current_action = 'rejected')    AS rejected_count,
+                        COUNT(c.id) FILTER (WHERE c.current_action = 'edited')      AS edited_count,
+                        COUNT(c.id) FILTER (WHERE c.current_action = 'dismissed')   AS dismissed_count,
+                        COUNT(c.id) FILTER (WHERE c.current_action = 'pending')     AS pending_count
+                    FROM hub_sessions s
+                    LEFT JOIN hub_changes c ON c.session_id = s.id
+                    GROUP BY s.id
+                    ORDER BY s.created_at DESC
+                    LIMIT 100
+                """)
+                cols = [d[0] for d in cur.description]
+                sessions_raw = cur.fetchall()
+
+                cur.execute("""
+                    SELECT
+                        COUNT(*)                                                         AS total,
+                        COUNT(*) FILTER (WHERE status = 'ready')                        AS ready,
+                        COUNT(*) FILTER (WHERE status = 'running')                      AS running,
+                        COUNT(*) FILTER (WHERE status = 'failed')                       AS failed,
+                        COUNT(*) FILTER (WHERE status = 'expired')                      AS expired,
+                        COUNT(*) FILTER (WHERE mode = 'generate')                       AS generate,
+                        COUNT(*) FILTER (WHERE mode = 'revise')                         AS revise,
+                        COUNT(*) FILTER (WHERE mode = 'review')                         AS review,
+                        COUNT(*) FILTER (WHERE posture = 'buy')                         AS buy,
+                        COUNT(*) FILTER (WHERE posture = 'sell')                        AS sell,
+                        COUNT(*) FILTER (WHERE posture = 'neutral')                     AS neutral
+                    FROM hub_sessions
+                """)
+                stats_row = cur.fetchone()
+                stats_cols = [d[0] for d in cur.description]
+                stats = dict(zip(stats_cols, stats_row)) if stats_row else {}
+
+                cur.execute("""
+                    SELECT ROUND(AVG(cnt)::numeric, 1)
+                    FROM (
+                        SELECT COUNT(c.id) AS cnt
+                        FROM hub_sessions s
+                        LEFT JOIN hub_changes c ON c.session_id = s.id
+                        WHERE s.status = 'ready'
+                        GROUP BY s.id
+                    ) sub
+                """)
+                avg_row = cur.fetchone()
+                stats["avg_changes"] = float(avg_row[0]) if avg_row and avg_row[0] else 0.0
+
+        sessions = []
+        for row in sessions_raw:
+            d = dict(zip(cols, row))
+            for k in ("created_at", "last_activity_at"):
+                if d.get(k) is not None:
+                    d[k] = d[k].isoformat()
+            sessions.append(d)
+
+        # Convert Decimal counts to int for JSON serialisation
+        for k, v in stats.items():
+            if hasattr(v, "__int__") and not isinstance(v, (int, float, bool)):
+                stats[k] = int(v)
+
+        return jsonify({"sessions": sessions, "stats": stats})
+    except Exception as exc:
+        logger.error("admin_hub_sessions failed: %s", exc)
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":

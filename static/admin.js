@@ -675,6 +675,147 @@ document.getElementById("adminRuntimeApply").addEventListener("click", async () 
   }
 });
 
+// ── Hub Sessions panel ────────────────────────────────────────────────────────
+
+const HUB_SEVERITY_COLOR = { high: "var(--red)", med: "var(--amber, #d97706)", low: "var(--muted)" };
+const HUB_ACTION_COLOR   = { accepted: "var(--green, #16a34a)", rejected: "var(--red)", edited: "var(--accent)", dismissed: "var(--muted)", pending: "var(--muted)" };
+
+function hubStatusBadge(status) {
+  const colors = { ready: "var(--green, #16a34a)", running: "var(--accent)", failed: "var(--red)", expired: "var(--muted)" };
+  return `<span style="color:${colors[status] || "var(--muted)"}; font-weight:700">${escapeHtml(status)}</span>`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "--";
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
+async function loadHubSessions() {
+  const table = document.getElementById("hubSessionsTable");
+  table.innerHTML = `<p class="muted">Loading...</p>`;
+  try {
+    const data = await getJson("/api/admin/hub/sessions");
+    const s = data.stats || {};
+
+    document.getElementById("hubStatTotal").textContent    = s.total    ?? "--";
+    document.getElementById("hubStatGenerate").textContent = s.generate ?? "--";
+    document.getElementById("hubStatRevise").textContent   = s.revise   ?? "--";
+    document.getElementById("hubStatReview").textContent   = s.review   ?? "--";
+    document.getElementById("hubStatAvg").textContent      = s.avg_changes != null ? Number(s.avg_changes).toFixed(1) : "--";
+    document.getElementById("hubStatFailed").textContent   = s.failed   ?? "--";
+
+    const sessions = data.sessions || [];
+    if (!sessions.length) {
+      table.innerHTML = `<p class="muted">No hub sessions recorded yet.</p>`;
+      return;
+    }
+
+    table.innerHTML = `
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Mode</th>
+            <th>Posture</th>
+            <th>Status</th>
+            <th>Redlines</th>
+            <th>Missing</th>
+            <th>Accepted</th>
+            <th>Rejected</th>
+            <th>Pending</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sessions.map((sess) => `
+            <tr data-session-id="${escapeHtml(sess.id)}">
+              <td>${escapeHtml(fmtDate(sess.created_at))}</td>
+              <td><span class="tag">${escapeHtml(sess.mode)}</span></td>
+              <td><span class="tag tag-stance">${escapeHtml(sess.posture)}</span></td>
+              <td>${hubStatusBadge(sess.status)}</td>
+              <td>${sess.redline_count ?? 0}</td>
+              <td>${sess.missing_count ?? 0}</td>
+              <td style="color:var(--green, #16a34a)">${sess.accepted_count ?? 0}</td>
+              <td style="color:var(--red)">${sess.rejected_count ?? 0}</td>
+              <td class="muted">${sess.pending_count ?? 0}</td>
+              <td><button class="secondary hub-expand-btn" data-session-id="${escapeHtml(sess.id)}">Detail</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+
+    table.querySelectorAll(".hub-expand-btn").forEach((btn) => {
+      btn.addEventListener("click", () => toggleHubDetail(btn));
+    });
+  } catch (err) {
+    table.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function toggleHubDetail(btn) {
+  const sessionId = btn.dataset.sessionId;
+  const row = btn.closest("tr");
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains("hub-detail-row")) { next.remove(); btn.textContent = "Detail"; return; }
+
+  btn.textContent = "Loading...";
+  btn.disabled = true;
+
+  try {
+    const data = await getJson(`/api/v2/hub/${sessionId}/status`);
+    const changes = data.changes || [];
+
+    const detailRow = document.createElement("tr");
+    detailRow.className = "hub-detail-row";
+
+    if (!changes.length) {
+      detailRow.innerHTML = `<td colspan="10" style="padding:12px;background:var(--bg-raised)"><p class="muted">No changes recorded for this session.</p></td>`;
+    } else {
+      detailRow.innerHTML = `
+        <td colspan="10" style="padding:12px;background:var(--bg-raised)">
+          <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+            <thead>
+              <tr style="border-bottom:1px solid var(--line)">
+                <th style="text-align:left;padding:4px 8px">Category</th>
+                <th style="text-align:left;padding:4px 8px">Kind</th>
+                <th style="text-align:left;padding:4px 8px">Severity</th>
+                <th style="text-align:left;padding:4px 8px">Action</th>
+                <th style="text-align:left;padding:4px 8px">Rationale</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${changes.map((c) => `
+                <tr style="border-bottom:1px solid var(--line)">
+                  <td style="padding:4px 8px"><span class="tag">${escapeHtml((c.category || "--").replaceAll("_", " "))}</span></td>
+                  <td style="padding:4px 8px">${escapeHtml(c.kind || "--")}</td>
+                  <td style="padding:4px 8px;color:${HUB_SEVERITY_COLOR[c.severity] || "inherit"}">${escapeHtml(c.severity || "--")}</td>
+                  <td style="padding:4px 8px;color:${HUB_ACTION_COLOR[c.current_action] || "inherit"};font-weight:600">${escapeHtml(c.current_action || "pending")}</td>
+                  <td style="padding:4px 8px;color:var(--muted)">${escapeHtml((c.rationale || "").slice(0, 120))}${(c.rationale || "").length > 120 ? "…" : ""}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </td>
+      `;
+    }
+
+    row.after(detailRow);
+    btn.textContent = "Close";
+  } catch (err) {
+    btn.textContent = "Detail";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Wire hub sessions panel load
+document.querySelectorAll(".sidebar-link").forEach((btn) => {
+  if (btn.dataset.panel === "hub-sessions") {
+    btn.addEventListener("click", loadHubSessions, { once: false });
+  }
+});
+
 refreshDashboard();
 refreshDatasetStats();
 loadPipelineInfo();
