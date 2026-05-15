@@ -162,15 +162,17 @@ def _run_issue_spotter(
         '[\n'
         '  {\n'
         '    "clause_anchor": "§ 7.4",\n'
-        '    "category": "<one of: ' + ", ".join(sorted(VALID_CATEGORIES)) + '>",\n'
+        '    "category": "<MUST be exactly one of: ' + " | ".join(sorted(VALID_CATEGORIES)) + '. If none fits, omit this change entirely.>",\n'
         '    "severity": "high|med|low",\n'
         '    "kind": "redline",\n'
-        '    "original_text": "exact text span being changed",\n'
+        '    "original_text": "verbatim substring of the DRAFT text above (≥40 chars). If you cannot quote a verbatim span, use kind=\'missing_clause\' instead.",\n'
         '    "proposed_text": "replacement text",\n'
         '    "rationale": "Why this matters for a ' + posture + '-side party",\n'
         '    "source_ref": "optional: playbook section or clause"\n'
         '  }\n'
         ']\n\n'
+        "Rules: category MUST be one of the listed values — any other string is invalid and that item must be omitted. "
+        "original_text MUST be a verbatim substring of the DRAFT. "
         "Output ONLY the JSON array, no explanation."
     )
 
@@ -209,7 +211,7 @@ def _run_missing_clause_proposer(
         '[\n'
         '  {\n'
         '    "clause_anchor": null,\n'
-        '    "category": "<category from vocabulary>",\n'
+        '    "category": "<MUST be exactly one of: ' + " | ".join(sorted(VALID_CATEGORIES)) + '. If none fits, omit this item.>",\n'
         '    "severity": "high|med|low",\n'
         '    "kind": "missing_clause",\n'
         '    "original_text": null,\n'
@@ -218,6 +220,7 @@ def _run_missing_clause_proposer(
         '    "source_ref": null\n'
         '  }\n'
         ']\n\n'
+        "Rule: category MUST be one of the listed values — any other string is invalid and that item must be omitted. "
         "Output ONLY the JSON array."
     )
 
@@ -230,7 +233,9 @@ def _run_missing_clause_proposer(
         for c in changes[:max_missing]:
             c["kind"] = "missing_clause"
             c["original_text"] = None
-            result.append(_normalize_change(c))
+            normalized = _normalize_change(c)
+            if _valid_change(normalized):
+                result.append(normalized)
         return result
     except Exception as exc:
         logger.error("Missing-clause proposer failed: %s", exc)
