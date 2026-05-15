@@ -1453,6 +1453,83 @@ def hub_delete(session_id: str):
     return jsonify({"deleted": True, "session_id": session_id})
 
 
+# ── Session sweep (Cloud Scheduler) ──────────────────────────────────────────
+
+_SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET", "")
+
+
+def _scheduler_authed() -> bool:
+    provided = request.headers.get("X-Scheduler-Secret", "")
+    if not _SCHEDULER_SECRET or not provided:
+        return False
+    return _secrets.compare_digest(provided, _SCHEDULER_SECRET)
+
+
+@app.post("/api/v2/hub/sweep")
+def hub_sweep():
+    """Hourly TTL sweep: hard-delete hub sessions (+ cascaded changes) older than
+    24h and clear their Supermemory containers. Called by Cloud Scheduler.
+
+    Returns 401 when X-Scheduler-Secret is missing or wrong.
+    Returns 200 with {deleted, supermemory_cleared, supermemory_errors} on success.
+    Idempotent — safe to retry or call manually for testing.
+    """
+    if not _scheduler_authed():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    deleted_count = 0
+    sm_cleared = 0
+    sm_errors = 0
+    expired_ids: list[str] = []
+
+    if db_url:
+        try:
+            import psycopg
+            with psycopg.connect(db_url) as conn:
+                with conn.cursor() as cur:
+                    # Collect IDs first so we can clear Supermemory before deleting
+                    cur.execute(
+                        """
+                        SELECT id FROM hub_sessions
+                        WHERE created_at < NOW() - INTERVAL '24 hours'
+                        """,
+                    )
+                    expired_ids = [str(row[0]) for row in cur.fetchall()]
+
+                    if expired_ids:
+                        # ON DELETE CASCADE in 007_hub_tables.sql wipes hub_changes
+                        cur.execute(
+                            "DELETE FROM hub_sessions WHERE id = ANY(%s)",
+                            (expired_ids,),
+                        )
+                        deleted_count = cur.rowcount
+                conn.commit()
+        except Exception as exc:
+            logger.error("hub_sweep DB step failed: %s", exc)
+            return jsonify({"error": "Database error during sweep"}), 500
+
+    # Clear Supermemory containers for expired sessions (best-effort, non-blocking)
+    for sid in expired_ids:
+        try:
+            from scripts.session_memory import get_session_memory
+            get_session_memory(sid).clear()
+            sm_cleared += 1
+        except Exception as exc:
+            logger.warning("hub_sweep Supermemory clear failed for %s: %s", sid, exc)
+            sm_errors += 1
+
+    logger.info(
+        "hub_sweep complete: %d sessions deleted, %d SM cleared, %d SM errors",
+        deleted_count, sm_cleared, sm_errors,
+    )
+    return jsonify({
+        "deleted": deleted_count,
+        "supermemory_cleared": sm_cleared,
+        "supermemory_errors": sm_errors,
+    })
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true", "yes"}
