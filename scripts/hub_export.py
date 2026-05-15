@@ -160,6 +160,30 @@ def _build_redline_docx(draft_text: str, accepted_changes: list[dict[str, Any]])
         else:
             p.add_run(para_text)
 
+    # New-section insertions: accepted changes with no original_text cannot
+    # be spliced into a paragraph, so append them as tracked insertions at
+    # the end of the document so Word's review pane sees them.
+    for change in (c for c in accepted_changes if not c.get("original_text")):
+        text = change.get("current_text") or change.get("proposed_text", "")
+        if not text:
+            continue
+        p = doc.add_paragraph()
+        anchor = change.get("clause_anchor", "")
+        if anchor:
+            note = p.add_run(f"[Proposed: {anchor}]  ")
+            note.italic = True
+        ins_elem = OxmlElement("w:ins")
+        ins_elem.set(qn("w:id"), str(rev_id)); rev_id += 1
+        ins_elem.set(qn("w:author"), "LawAgent")
+        ins_elem.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
+        ins_r = OxmlElement("w:r")
+        ins_t = OxmlElement("w:t")
+        ins_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        ins_t.text = text
+        ins_r.append(ins_t)
+        ins_elem.append(ins_r)
+        p._element.append(ins_elem)
+
     _add_footer(doc)
     buf = io.BytesIO()
     doc.save(buf)
@@ -175,9 +199,15 @@ def _build_clean_docx(draft_text: str, accepted_changes: list[dict[str, Any]]) -
         original = c.get("original_text")
         replacement = c.get("current_text") or c.get("proposed_text", "")
         if original and original in text:
-            # Replace ALL occurrences — a single original_text appearing in
-            # multiple paragraphs (e.g. boilerplate header) should all be updated.
             text = text.replace(original, replacement)
+
+    # New-section insertions: no original_text means the change is an addition,
+    # not a replacement. Append at the end so the clean doc contains the clause.
+    for c in accepted_changes:
+        if not c.get("original_text"):
+            addition = c.get("current_text") or c.get("proposed_text", "")
+            if addition:
+                text = text + "\n\n" + addition
 
     doc = Document()
     for line in text.split("\n"):
