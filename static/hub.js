@@ -131,9 +131,9 @@
   if (promptText) {
     promptText.addEventListener('input', () => {
       const len = promptText.value.length;
-      promptCounter.textContent = `${len} / 500`;
-      promptCounter.classList.toggle('amber', len >= 450 && len < 490);
-      promptCounter.classList.toggle('red', len >= 490);
+      promptCounter.textContent = `${len} / 5000`;
+      promptCounter.classList.toggle('amber', len >= 4500 && len < 4900);
+      promptCounter.classList.toggle('red', len >= 4900);
     });
   }
 
@@ -217,13 +217,13 @@
     submitSpinner.hidden = false;
 
     try {
-      // Upload context files first
+      // Submit first to get a session_id, then upload context (which requires session_id)
+      const sessionResult = await submitHub(currentMode, prompt);
+      currentSessionId = sessionResult.session_id;
+
       for (const ctxFile of contextFiles) {
         await uploadContext(ctxFile);
       }
-
-      const sessionResult = await submitHub(currentMode, prompt);
-      currentSessionId = sessionResult.session_id;
 
       if (sessionResult.status === 'running') {
         startPolling(currentSessionId);
@@ -272,19 +272,47 @@
 
   function startPolling(sessionId) {
     clearInterval(pollInterval);
+    let pollCount = 0;
+    const MAX_POLLS = 120; // 120 × 2.5s = 5 minutes timeout
+    const t0 = Date.now();
+    // Update the spinner label with elapsed time + stage guess so the
+    // user isn't staring at a blank spinner during the 60-120s pipeline
+    const updateProgress = () => {
+      const sec = Math.floor((Date.now() - t0) / 1000);
+      let stage = 'Retrieving corpus & drafting…';
+      if (sec > 30) stage = 'Spotting issues & proposing missing clauses…';
+      if (sec > 90) stage = 'Finalizing changes…';
+      if (submitLabel) submitLabel.textContent = `${stage} (${sec}s)`;
+    };
+    updateProgress();
+    if (submitLabel) submitLabel.hidden = false; // show the label alongside the spinner
     pollInterval = setInterval(async () => {
+      pollCount++;
+      updateProgress();
+      if (pollCount > MAX_POLLS) {
+        clearInterval(pollInterval);
+        alert('Hub processing timed out. The server may still be working — refresh to check.');
+        submitBtn.disabled = false;
+        submitLabel.hidden = false;
+        if (submitLabel) submitLabel.textContent = 'Generate first draft';
+        submitSpinner.hidden = true;
+        return;
+      }
       try {
         const r = await fetch(`/api/v2/hub/${sessionId}/status`);
         if (!r.ok) return;
         const data = await r.json();
         if (data.status === 'ready') {
           clearInterval(pollInterval);
+          if (submitLabel) submitLabel.textContent = 'Generate first draft';
           openEditingHub(data);
-        } else if (data.status === 'failed') {
+        } else if (data.status === 'failed' || data.status === 'error') {
           clearInterval(pollInterval);
-          alert('Hub processing failed. Please try again.');
+          const msg = data.error ? `Hub processing failed: ${data.error}` : 'Hub processing failed. Please try again.';
+          alert(msg);
           submitBtn.disabled = false;
           submitLabel.hidden = false;
+          if (submitLabel) submitLabel.textContent = 'Generate first draft';
           submitSpinner.hidden = true;
         }
       } catch { /* retry next tick */ }

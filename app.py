@@ -878,11 +878,50 @@ def v2_llm_status():
         return jsonify({"ollama_available": False, "mode": "deterministic"})
 
 
+@app.get("/api/v2/corpus/diagnostic")
+def v2_corpus_diagnostic():
+    """Public diagnostic for the demo corpus retrieval path.
+
+    Reports the active VECTOR_BACKEND, the count of indexed chunks, and a
+    sample retrieval against a fixed M&A query so it's obvious whether
+    Cohere Embed v4 + pgvector are actually being exercised. Safe to expose
+    publicly because it returns metadata only — no chunk text spans, no PII.
+    """
+    try:
+        from scripts.vector_store import get_demo_vector_store
+        store = get_demo_vector_store()
+        status = store.status() if hasattr(store, "status") else {}
+        sample_chunks = []
+        try:
+            sample = store.query("indemnification basket and cap for buy-side", top_k=3)
+            sample_chunks = [
+                {
+                    "title": c.get("title", ""),
+                    "category": c.get("category", ""),
+                    "score": c.get("score", 0),
+                    "source_system": c.get("source_system", ""),
+                }
+                for c in sample
+            ]
+        except Exception as exc:
+            logger.warning("Corpus diagnostic query failed: %s", exc)
+        return jsonify({
+            "backend": os.environ.get("VECTOR_BACKEND", "chromadb"),
+            "status": status,
+            "sample_query": "indemnification basket and cap for buy-side",
+            "sample_results_count": len(sample_chunks),
+            "sample_titles": sample_chunks,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── Demo mode guard ──────────────────────────────────────────────────────────
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 HUB_ENABLED = os.environ.get("HUB_ENABLED", "true").lower() not in ("false", "0", "no")
-INPUT_MAX_CHARS = 500
+INPUT_MAX_CHARS = 500                                           # CRAG query limit
+HUB_PROMPT_MAX_CHARS = int(os.environ.get("HUB_PROMPT_MAX_CHARS", "5000"))  # Hub drafting brief limit
 
 
 def _demo_gate(f):
@@ -973,33 +1012,61 @@ def hub_page():
 
 
 # ── Hub in-memory session cache (supplements Postgres for fast status polls) ──
+# TTL-based eviction: sessions older than HUB_TTL_MINUTES (default 1440 = 24h)
+# are purged on each store/load to prevent unbounded memory growth.
 
 _hub_sessions: dict[str, dict[str, Any]] = {}
 _hub_sessions_lock = threading.Lock()
+_HUB_SESSION_TTL = int(os.environ.get("HUB_TTL_MINUTES", "1440")) * 60  # seconds
+
+
+def _hub_evict_expired() -> None:
+    """Remove sessions older than TTL. Must be called inside _hub_sessions_lock."""
+    import time
+    cutoff = time.time() - _HUB_SESSION_TTL
+    expired = [sid for sid, d in _hub_sessions.items() if d.get("_stored_at", 0) < cutoff]
+    for sid in expired:
+        del _hub_sessions[sid]
 
 
 def _hub_store(session_id: str, data: dict[str, Any]) -> None:
+    import time
     with _hub_sessions_lock:
+        data["_stored_at"] = time.time()
         _hub_sessions[session_id] = data
+        _hub_evict_expired()
 
 
 def _hub_load(session_id: str) -> dict[str, Any] | None:
+    import time
     with _hub_sessions_lock:
-        return _hub_sessions.get(session_id)
+        _hub_evict_expired()
+        d = _hub_sessions.get(session_id)
+        if d and time.time() - d.get("_stored_at", 0) > _HUB_SESSION_TTL:
+            del _hub_sessions[session_id]
+            return None
+        return d
 
 
 # ── Hub submission routes ─────────────────────────────────────────────────────
 
-def _run_hub_background(mode: str, kwargs: dict[str, Any], session_id_holder: list[str]) -> None:
-    """Run hub pipeline in a thread; stores result in _hub_sessions."""
+def _run_hub_background(mode: str, session_id: str, kwargs: dict[str, Any]) -> None:
+    """Run hub pipeline in a background thread; writes result into _hub_sessions."""
     from scripts.hub_pipeline import run_hub_session
     try:
-        result = run_hub_session(mode=mode, **kwargs)
-        sid = result["session_id"]
-        session_id_holder.append(sid)
-        _hub_store(sid, result)
-    except Exception:
-        logger.exception("Hub background task failed")
+        result = run_hub_session(mode=mode, session_id=session_id, **kwargs)
+        result["status"] = result.get("status", "ready")
+        _hub_store(session_id, result)
+        logger.info("Hub background task complete for session %s", session_id)
+    except Exception as exc:
+        logger.exception("Hub background task failed for session %s", session_id)
+        _hub_store(session_id, {
+            "session_id": session_id,
+            "status": "error",
+            "error": str(exc),
+            "mode": mode,
+            "changes": [],
+        })
 
 
 def _submit_hub(mode: str) -> Response:
@@ -1014,15 +1081,16 @@ def _submit_hub(mode: str) -> Response:
     if DEMO_MODE and not _valid_consent_token(consent_token):
         return jsonify({"error": "Consent required", "code": "CONSENT_REQUIRED"}), 403
 
-    # Input validation
+    # Input validation — hub prompts use a higher character limit (5 000 chars)
+    # and skip dollar-amount PII checks (deal prices are core M&A drafting content)
     prompt = request.form.get("prompt", "").strip()
     if prompt:
-        err = _check_input_length(prompt)
-        if err:
-            return err
-        err = _pii_screen_request(prompt)
-        if err:
-            return err
+        if len(prompt) > HUB_PROMPT_MAX_CHARS:
+            return jsonify({"error": f"Prompt exceeds {HUB_PROMPT_MAX_CHARS} character limit", "code": "LENGTH_LIMIT"}), 400
+        from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
+        blocked, reason = _pii_screen(prompt, skip_patterns=HUB_SKIP_PATTERNS)
+        if blocked:
+            return jsonify({"error": "Input blocked by content policy", "code": "PII_FILTER", "detail": reason}), 400
 
     posture = request.form.get("posture", "neutral")
     if posture not in {"buy", "sell", "neutral"}:
@@ -1047,6 +1115,9 @@ def _submit_hub(mode: str) -> Response:
         file_bytes = raw
         filename = secure_filename(uploaded.filename)
 
+    import uuid as _uuid
+    session_id = str(_uuid.uuid4())
+
     db_url = os.environ.get("DATABASE_URL", "")
     kwargs: dict[str, Any] = {
         "posture": posture,
@@ -1060,15 +1131,26 @@ def _submit_hub(mode: str) -> Response:
         kwargs["file_bytes"] = file_bytes
         kwargs["filename"] = filename
 
-    # Run synchronously for simplicity; in production wrap in a Cloud Run Job
-    from scripts.hub_pipeline import run_hub_session
-    try:
-        result = run_hub_session(mode=mode, **kwargs)
-        _hub_store(result["session_id"], result)
-        return jsonify(result)
-    except Exception as exc:
-        logger.exception("Hub %s failed", mode)
-        return jsonify({"error": str(exc)}), 500
+    # Store a "running" placeholder immediately so the status endpoint works
+    _hub_store(session_id, {
+        "session_id": session_id,
+        "status": "running",
+        "mode": mode,
+        "posture": posture,
+        "changes": [],
+        "draft_text": "",
+        "gcs_prefix": f"review-staging/{session_id}/",
+    })
+
+    # Launch pipeline in background thread; return 202 immediately
+    t = threading.Thread(
+        target=_run_hub_background,
+        args=(mode, session_id, kwargs),
+        daemon=True,
+    )
+    t.start()
+
+    return jsonify({"session_id": session_id, "status": "running"}), 202
 
 
 @app.post("/api/v2/hub/generate")
@@ -1122,9 +1204,17 @@ def hub_context_attach():
 def hub_status(session_id: str):
     data = _hub_load(session_id)
     if data:
-        return jsonify({"session_id": session_id, "status": data.get("status", "ready"),
-                        "changes": data.get("changes", []), "mode": data.get("mode"),
-                        "posture": data.get("posture"), "draft_text": data.get("draft_text", "")})
+        resp: dict[str, Any] = {
+            "session_id": session_id,
+            "status": data.get("status", "ready"),
+            "changes": data.get("changes", []),
+            "mode": data.get("mode"),
+            "posture": data.get("posture"),
+            "draft_text": data.get("draft_text", ""),
+        }
+        if data.get("error"):
+            resp["error"] = data["error"]
+        return jsonify(resp)
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
         try:
@@ -1136,8 +1226,22 @@ def hub_status(session_id: str):
                         (session_id,),
                     )
                     row = cur.fetchone()
+                    if row:
+                        cur.execute(
+                            """SELECT id, clause_anchor, category, severity, kind,
+                                      original_text, proposed_text, rationale, source_ref,
+                                      current_action, current_text
+                               FROM hub_changes WHERE session_id = %s ORDER BY created_at""",
+                            (session_id,),
+                        )
+                        cols = [d[0] for d in cur.description]
+                        changes = [dict(zip(cols, r)) for r in cur.fetchall()]
             if row:
-                return jsonify({"session_id": session_id, "status": row[0], "mode": row[1], "posture": row[2]})
+                return jsonify({
+                    "session_id": session_id,
+                    "status": row[0], "mode": row[1], "posture": row[2],
+                    "changes": changes, "draft_text": "",  # draft_text not persisted to DB
+                })
         except Exception as exc:
             logger.warning("Hub status DB lookup failed: %s", exc)
     return jsonify({"error": "Session not found"}), 404
@@ -1159,14 +1263,26 @@ def hub_change_action(session_id: str, change_id: str):
     if action not in valid_actions:
         return jsonify({"error": f"action must be one of {valid_actions}"}), 400
 
-    # Update in-memory session
-    data = _hub_load(session_id)
-    if data:
-        for c in data.get("changes", []):
-            if c.get("id") == change_id or c.get("change_id") == change_id:
-                c["current_action"] = action
-                if edited_text is not None:
-                    c["current_text"] = edited_text
+    # Normalize verb → past tense to match the hub_action ENUM and the artifact
+    # builders that filter on ("accepted", "rejected", "edited", "dismissed").
+    action_canonical = {
+        "accept": "accepted",
+        "reject": "rejected",
+        "edit": "edited",
+        "dismiss": "dismissed",
+    }[action]
+
+    # Update in-memory session under the lock to avoid race with evict / concurrent PATCH
+    with _hub_sessions_lock:
+        _hub_evict_expired()
+        data = _hub_sessions.get(session_id)
+        if data:
+            for c in data.get("changes", []):
+                if c.get("id") == change_id or c.get("change_id") == change_id:
+                    c["current_action"] = action_canonical
+                    if edited_text is not None:
+                        c["current_text"] = edited_text
+                    break
 
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
@@ -1181,7 +1297,7 @@ def hub_change_action(session_id: str, change_id: str):
             """
             with psycopg.connect(db_url) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(update_sql, (action, edited_text, change_id, session_id))
+                    cur.execute(update_sql, (action_canonical, edited_text, change_id, session_id))
                     # Bump last_activity_at on the session
                     cur.execute(
                         "UPDATE hub_sessions SET last_activity_at = NOW() WHERE id = %s",
@@ -1191,7 +1307,7 @@ def hub_change_action(session_id: str, change_id: str):
         except Exception as exc:
             logger.warning("Hub change action DB update failed: %s", exc)
 
-    return jsonify({"session_id": session_id, "change_id": change_id, "action": action})
+    return jsonify({"session_id": session_id, "change_id": change_id, "action": action_canonical})
 
 
 # ── Anchored chat ─────────────────────────────────────────────────────────────
@@ -1210,12 +1326,15 @@ def hub_ask(session_id: str):
     if not question:
         return jsonify({"error": "question is required"}), 400
 
+    # Hub clause questions naturally reference deal figures — skip dollar amounts,
+    # but enforce the standard 500-char length (chat lines, not drafting briefs)
     err = _check_input_length(question)
     if err:
         return err
-    err = _pii_screen_request(question)
-    if err:
-        return err
+    from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
+    blocked, reason = _pii_screen(question, skip_patterns=HUB_SKIP_PATTERNS)
+    if blocked:
+        return jsonify({"error": "Input blocked by content policy", "code": "PII_FILTER", "detail": reason}), 400
 
     from scripts.hub_chat import ask_clause
 
@@ -1242,6 +1361,10 @@ def hub_bake(session_id: str):
     data = _hub_load(session_id)
     if not data:
         return jsonify({"error": "Session not found or expired"}), 404
+    if data.get("status") == "running":
+        return jsonify({"error": "Session is still processing — wait for status=ready before bake", "code": "STILL_RUNNING"}), 409
+    if data.get("status") == "error":
+        return jsonify({"error": "Session failed; cannot bake", "code": "SESSION_FAILED"}), 409
 
     from scripts.hub_export import bake_session
     try:

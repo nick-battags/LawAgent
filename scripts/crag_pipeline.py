@@ -270,20 +270,22 @@ def enhance_issue_with_llm(
 def pipeline_status() -> dict[str, Any]:
     from scripts.llm_provider import get_llm
 
+    # Report on whatever backend the demo is *actually* using
+    # (pgvector / supermemory / chromadb), not just the legacy CRAG ChromaDB.
     vector_status: dict[str, Any]
     try:
-        from scripts.vector_store import get_vector_store
+        from scripts.vector_store import get_demo_vector_store
 
-        store = get_vector_store()
+        store = get_demo_vector_store()
         vector_status = store.status()
+        vector_status["demo_backend"] = os.environ.get("VECTOR_BACKEND", "chromadb")
     except Exception as exc:
-        logger.warning("Vector store status unavailable: %s", exc)
+        logger.warning("Demo vector store status unavailable: %s", exc)
         vector_status = {
             "vector_count": 0,
             "embedding": "unavailable",
             "embedding_backend": "none",
-            "embedding_urls_configured": 0,
-            "persist_dir": "./chroma_data",
+            "demo_backend": os.environ.get("VECTOR_BACKEND", "chromadb"),
             "error": str(exc),
         }
 

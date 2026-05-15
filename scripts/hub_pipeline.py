@@ -435,11 +435,12 @@ def run_hub_session(
     length_target: str = "",
     context_chunks: list[dict[str, Any]] | None = None,
     database_url: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a full hub session synchronously. Returns session result dict.
 
-    In production this would run in a background task; kept synchronous here
-    so it can be called from a Cloud Run Job or a threading.Thread in Flask.
+    Accepts an optional pre-assigned session_id so that background processing
+    can return the ID to the client before the pipeline completes.
     """
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode: {mode!r}. Must be one of {VALID_MODES}")
@@ -451,7 +452,7 @@ def run_hub_session(
     ttl_minutes = _env_int("HUB_TTL_MINUTES", 1440)
     db_url = database_url or os.environ.get("DATABASE_URL", "")
 
-    session_id = str(uuid.uuid4())
+    session_id = session_id or str(uuid.uuid4())
     gcs_prefix = f"review-staging/{session_id}/"
 
     if db_url:
@@ -488,18 +489,43 @@ def run_hub_session(
         elif mode == "revise":
             draft_anon = _revise_draft(draft_anon, prompt_anon, posture, corpus_chunks, ctx_chunks)
 
-        # ── Step 5: issue spotter ─────────────────────────────────────────
-        redline_changes = _run_issue_spotter(
-            draft_anon, posture, corpus_chunks, ctx_chunks, max_changes,
-        )
+        # ── Steps 5+6: issue spotter + missing-clause proposer (parallel) ───
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # ── Step 6: missing-clause proposer ───────────────────────────────
+        redline_changes: list[dict] = []
+        missing_changes: list[dict] = []
+
+        def _spot():
+            return _run_issue_spotter(draft_anon, posture, corpus_chunks, ctx_chunks, max_changes)
+
+        def _missing():
+            # covered_cats computed after spotter; run proposer with empty set first,
+            # then filter duplicates after merge — acceptable for parallel execution
+            return _run_missing_clause_proposer(draft_anon, posture, doc_type, set(), max_missing)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_spot = pool.submit(_spot)
+            fut_missing = pool.submit(_missing)
+            redline_changes = fut_spot.result()
+            missing_changes = fut_missing.result()
+
+        # Deduplicate missing clauses already covered by redlines
         covered_cats = {c["category"] for c in redline_changes}
-        missing_changes = _run_missing_clause_proposer(
-            draft_anon, posture, doc_type, covered_cats, max_missing,
-        )
+        missing_changes = [c for c in missing_changes if c["category"] not in covered_cats]
 
         all_changes = redline_changes + missing_changes
+
+        # ── Step 6.5: rehydrate placeholders → real names BEFORE persistence ──
+        # The LLM ran on anonymized text, so original_text / proposed_text /
+        # rationale all reference [PARTY_1] etc. Rehydrate everything before the
+        # user sees it OR the DB stores it, so downstream display / bake / chat
+        # all work on real text.
+        draft_display = anon.rehydrate(draft_anon) if draft_anon else ""
+        for c in all_changes:
+            for k in ("original_text", "proposed_text", "current_text", "rationale", "clause_anchor"):
+                v = c.get(k)
+                if isinstance(v, str) and v:
+                    c[k] = anon.rehydrate(v)
 
         # ── Step 7: persist to Postgres ────────────────────────────────────
         change_ids: list[str] = []
@@ -525,7 +551,7 @@ def run_hub_session(
             "status": "ready",
             "mode": mode,
             "posture": posture,
-            "draft_text": draft_anon,
+            "draft_text": draft_display,
             "changes": all_changes,
             "change_ids": change_ids,
             "gcs_prefix": gcs_prefix,

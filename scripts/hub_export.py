@@ -113,43 +113,50 @@ def _build_redline_docx(draft_text: str, accepted_changes: list[dict[str, Any]])
         ]
 
         if matching:
-            change = matching[0]
-            original = change["original_text"]
-            replacement = change.get("current_text") or change.get("proposed_text", "")
-            before = para_text[:para_text.index(original)]
-            after = para_text[para_text.index(original) + len(original):]
+            # Apply all matching changes sequentially, tracking offset into remaining text
+            remaining = para_text
+            for change in matching:
+                original = change["original_text"]
+                replacement = change.get("current_text") or change.get("proposed_text", "")
+                if original not in remaining:
+                    continue
+                idx = remaining.index(original)
+                before = remaining[:idx]
+                after = remaining[idx + len(original):]
 
-            if before:
-                p.add_run(before)
+                if before:
+                    p.add_run(before)
 
-            # Deletion: w:del → w:r → w:delText  (w:r wrapper required by OOXML schema)
-            del_run = OxmlElement("w:del")
-            del_run.set(qn("w:id"), str(rev_id)); rev_id += 1
-            del_run.set(qn("w:author"), "LawAgent")
-            del_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
-            del_r = OxmlElement("w:r")
-            del_text = OxmlElement("w:delText")
-            del_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            del_text.text = original
-            del_r.append(del_text)
-            del_run.append(del_r)
-            p._element.append(del_run)
+                # Deletion: w:del → w:r → w:delText  (w:r wrapper required by OOXML schema)
+                del_run = OxmlElement("w:del")
+                del_run.set(qn("w:id"), str(rev_id)); rev_id += 1
+                del_run.set(qn("w:author"), "LawAgent")
+                del_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
+                del_r = OxmlElement("w:r")
+                del_text = OxmlElement("w:delText")
+                del_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                del_text.text = original
+                del_r.append(del_text)
+                del_run.append(del_r)
+                p._element.append(del_run)
 
-            # Insertion: w:ins → w:r → w:t
-            ins_run = OxmlElement("w:ins")
-            ins_run.set(qn("w:id"), str(rev_id)); rev_id += 1
-            ins_run.set(qn("w:author"), "LawAgent")
-            ins_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
-            ins_r = OxmlElement("w:r")
-            ins_text = OxmlElement("w:t")
-            ins_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            ins_text.text = replacement
-            ins_r.append(ins_text)
-            ins_run.append(ins_r)
-            p._element.append(ins_run)
+                # Insertion: w:ins → w:r → w:t
+                ins_run = OxmlElement("w:ins")
+                ins_run.set(qn("w:id"), str(rev_id)); rev_id += 1
+                ins_run.set(qn("w:author"), "LawAgent")
+                ins_run.set(qn("w:date"), datetime.now(timezone.utc).isoformat())
+                ins_r = OxmlElement("w:r")
+                ins_text = OxmlElement("w:t")
+                ins_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                ins_text.text = replacement
+                ins_r.append(ins_text)
+                ins_run.append(ins_r)
+                p._element.append(ins_run)
 
-            if after:
-                p.add_run(after)
+                remaining = after  # continue from after this change
+
+            if remaining:
+                p.add_run(remaining)
         else:
             p.add_run(para_text)
 
@@ -168,7 +175,9 @@ def _build_clean_docx(draft_text: str, accepted_changes: list[dict[str, Any]]) -
         original = c.get("original_text")
         replacement = c.get("current_text") or c.get("proposed_text", "")
         if original and original in text:
-            text = text.replace(original, replacement, 1)
+            # Replace ALL occurrences — a single original_text appearing in
+            # multiple paragraphs (e.g. boilerplate header) should all be updated.
+            text = text.replace(original, replacement)
 
     doc = Document()
     for line in text.split("\n"):
@@ -337,6 +346,23 @@ def _write_supermemory_summary(
 
     if len(summary_text) > 2000:
         summary_text = summary_text[:1997] + "..."
+
+    # Re-screen with PII firewall before any Supermemory write. The summary is
+    # category-only by construction, but defense-in-depth: never persist input
+    # that slipped past anonymization. Skip dollar-amount checks (deal figures
+    # are legitimate in summaries).
+    try:
+        from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
+        blocked, reason = _pii_screen(summary_text, skip_patterns=HUB_SKIP_PATTERNS)
+        if blocked:
+            logger.warning(
+                "Supermemory summary write blocked by PII firewall for session %s (%s) — skipping",
+                session_id, reason,
+            )
+            return
+    except Exception:
+        # Firewall import/run failure should not block the bake; log and continue
+        logger.warning("PII re-screen failed for session %s — proceeding with caution", session_id)
 
     try:
         from scripts.session_memory import get_session_memory

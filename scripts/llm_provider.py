@@ -72,8 +72,12 @@ class VertexProvider:
         self.location = os.environ.get("VERTEX_LOCATION", "us-central1")
         self.generator_model = os.environ.get("GENERATOR_MODEL_VERTEX", "gemini-2.5-flash")
         self.grader_model = os.environ.get("GRADER_MODEL_VERTEX", "gemini-2.5-flash-lite")
-        self.embed_model = os.environ.get("EMBED_MODEL_COHERE", "embed-english-v4.0")
-        self.rerank_model = os.environ.get("RERANK_MODEL_COHERE", "rerank-english-v3.5")
+        # Cohere v4 model IDs dropped the "english-" infix from v3 — Embed v4 is
+        # multilingual and output_dimension is selectable (256/512/1024/1536).
+        # We pin 1024 to match clause_chunks.embedding vector(1024) (migration 008).
+        self.embed_model = os.environ.get("EMBED_MODEL_COHERE", "embed-v4.0")
+        self.embed_output_dim = int(os.environ.get("COHERE_EMBED_OUTPUT_DIM", "1024"))
+        self.rerank_model = os.environ.get("RERANK_MODEL_COHERE", "rerank-v3.5")
         self.timeout = int(os.environ.get("LLM_TIMEOUT", "120"))
 
         self._cohere_key: str | None = None
@@ -94,10 +98,13 @@ class VertexProvider:
                 if self._genai_client is None:
                     try:
                         from google import genai
+                        from google.genai import types as genai_types
+                        # http_options.timeout is in MILLISECONDS — convert from self.timeout (seconds)
                         self._genai_client = genai.Client(
                             vertexai=True,
                             project=self.project,
                             location=self.location,
+                            http_options=genai_types.HttpOptions(timeout=self.timeout * 1000),
                         )
                     except Exception as exc:
                         self._last_error = str(exc)
@@ -151,6 +158,7 @@ class VertexProvider:
             "generator_model": self.generator_model,
             "grader_model": self.grader_model,
             "embed_model": self.embed_model,
+            "embed_output_dim": self.embed_output_dim,
             "rerank_model": self.rerank_model,
             "gcp_project": self.project,
             "vertex_location": self.location,
@@ -159,13 +167,18 @@ class VertexProvider:
         }
 
     def embed(self, texts: list[str], input_type: str = "search_document") -> list[list[float]]:
-        """Embed texts using Cohere Embed v4. input_type: search_document or search_query."""
+        """Embed texts using Cohere Embed v4. input_type: search_document or search_query.
+
+        Pins output_dimension to self.embed_output_dim (default 1024) so vectors
+        line up with the clause_chunks.embedding vector(1024) column.
+        """
         co = self._get_cohere()
         response = co.embed(
             texts=texts,
             model=self.embed_model,
             input_type=input_type,
             embedding_types=["float"],
+            output_dimension=self.embed_output_dim,
         )
         return response.embeddings.float
 
