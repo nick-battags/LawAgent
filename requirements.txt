@@ -1,7 +1,6 @@
 chromadb
 cohere>=5.0.0
 cryptography
-PyJWT>=2.8.0
 datasets
 flask
 flask-cors
