@@ -206,10 +206,11 @@ def index():
 
 
 def _admin_authed() -> bool:
+    if session.get("admin_authed") is True:
+        return True
     if not ADMIN_PIN:
         logger.warning("ADMIN_PIN not set - admin access disabled for safety. Set ADMIN_PIN to enable admin features.")
-        return False
-    return session.get("admin_authed") is True
+    return False
 
 
 def _require_admin(f):
@@ -791,9 +792,9 @@ def _startup_vector_sync():
         store = get_vector_store()
         if store.count() == 0:
             state = _start_vector_sync("startup sync", trigger="startup")
-            logger.info("Startup vector sync triggered: %s", state.get("status"))
+            logger.debug("Startup vector sync triggered: %s", state.get("status"))
         else:
-            logger.info("ChromaDB already has %d vectors, skipping startup sync", store.count())
+            logger.debug("ChromaDB already has %d vectors, skipping startup sync", store.count())
     except Exception:
         logger.warning("Startup vector sync skipped (non-fatal): %s", traceback.format_exc())
 

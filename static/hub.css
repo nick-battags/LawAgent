@@ -206,7 +206,8 @@ button.primary {
 }
 button.primary:hover { opacity: 0.88; }
 button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
-button.primary.large { padding: 0.9rem 2.5rem; font-size: 1.05rem; }
+button.primary.large  { padding: 0.9rem 2.5rem; font-size: 1.05rem; }
+button.primary.btn-sm { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
 
 .disclaimer { font-size: 0.78rem; color: #555; margin-top: 0.75rem; }
 
