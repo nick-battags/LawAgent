@@ -244,10 +244,13 @@ _CF_PUBLIC_HOST = "lawagent.nickvbattaglia.com"
 
 
 def _admin_authed() -> bool:
+    # Session flag is set either by PIN login or by the CF Access gate.
+    if session.get("admin_authed") is True:
+        return True
+    # No active session — PIN must be configured for the login flow to work.
     if not ADMIN_PIN:
         logger.warning("ADMIN_PIN not set - admin access disabled for safety. Set ADMIN_PIN to enable admin features.")
-        return False
-    return session.get("admin_authed") is True
+    return False
 
 
 def _require_admin(f):
@@ -268,6 +271,7 @@ def admin():
         if not _cf_access_valid():
             return Response(status=404)
         session["admin_authed"] = True
+        return render_template("admin.html")
 
     if not _admin_authed():
         return redirect(url_for("admin_login"))
