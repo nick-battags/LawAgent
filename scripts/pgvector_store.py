@@ -118,12 +118,15 @@ class PgvectorCorpusStore:
             return []
         vec_lit = _format_vector_literal(vec)
 
+        # WHERE embedding IS NOT NULL excludes any legacy migration-001 rows
+        # that pre-dated the Hub corpus seeding.
+        where_extra = "AND category = %s" if category else ""
         sql = f"""
             SELECT chunk_uid, title, category, source_system, document_id, page,
                    posture, jurisdiction, deal_structure, text,
                    1 - (embedding <=> %s::vector) AS similarity
             FROM {self.table}
-            { 'WHERE category = %s' if category else '' }
+            WHERE embedding IS NOT NULL {where_extra}
             ORDER BY embedding <=> %s::vector
             LIMIT %s
         """
@@ -210,12 +213,14 @@ class PgvectorCorpusStore:
         if not rows:
             return 0
 
+        # ON CONFLICT (chunk_uid) WHERE chunk_uid IS NOT NULL matches the
+        # partial unique index uniq_clause_chunks_chunk_uid (migration 008).
         sql = f"""
             INSERT INTO {self.table}
                 (chunk_uid, title, category, source_system, document_id, page,
                  posture, jurisdiction, deal_structure, text, embedding)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
-            ON CONFLICT (chunk_uid) DO UPDATE SET
+            ON CONFLICT (chunk_uid) WHERE chunk_uid IS NOT NULL DO UPDATE SET
                 title = EXCLUDED.title,
                 category = EXCLUDED.category,
                 source_system = EXCLUDED.source_system,
