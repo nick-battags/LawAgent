@@ -294,7 +294,7 @@
         alert('Hub processing timed out. The server may still be working — refresh to check.');
         submitBtn.disabled = false;
         submitLabel.hidden = false;
-        if (submitLabel) submitLabel.textContent = 'Generate first draft';
+        resetSubmitLabel();
         submitSpinner.hidden = true;
         return;
       }
@@ -304,7 +304,7 @@
         const data = await r.json();
         if (data.status === 'ready') {
           clearInterval(pollInterval);
-          if (submitLabel) submitLabel.textContent = 'Generate first draft';
+          resetSubmitLabel();
           openEditingHub(data);
         } else if (data.status === 'failed' || data.status === 'error') {
           clearInterval(pollInterval);
@@ -312,7 +312,7 @@
           alert(msg);
           submitBtn.disabled = false;
           submitLabel.hidden = false;
-          if (submitLabel) submitLabel.textContent = 'Generate first draft';
+          resetSubmitLabel();
           submitSpinner.hidden = true;
         }
       } catch { /* retry next tick */ }
@@ -329,7 +329,7 @@
     document.querySelector('.hub-intake').style.display = 'none';
     editingHub.style.display = 'flex';
 
-    hubModeLabel.textContent = data.mode || currentMode;
+    hubModeLabel.textContent = capitalize(data.mode || currentMode);
     hubPostureLabel.textContent = (data.posture || 'neutral').toUpperCase();
 
     currentChanges = data.changes || [];
@@ -410,7 +410,7 @@
       </div>
       <div class="card-why"><strong>Why:</strong> ${escapeHtml(change.rationale || '')}</div>
       ${change.source_ref ? `<div class="card-source muted"><strong>Source:</strong> ${escapeHtml(change.source_ref)}</div>` : ''}
-      <div class="card-proposed"><strong>Proposed:</strong> <span class="proposed-text">${escapeHtml((change.current_text || change.proposed_text || '').substring(0, 300))}</span></div>
+      <div class="card-proposed"><strong>Proposed:</strong> <span class="proposed-text">${escapeHtml(truncate(change.current_text || change.proposed_text || '', 300))}</span></div>
       <div class="card-actions">
         <button class="btn-accept btn-action" data-idx="${idx}">Accept</button>
         <button class="btn-reject btn-action" data-idx="${idx}">Reject</button>
@@ -689,6 +689,18 @@
 
   function capitalize(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  function truncate(str, n) {
+    if (!str) return '';
+    return str.length > n ? str.substring(0, n) + '…' : str;
+  }
+
+  function resetSubmitLabel() {
+    if (!submitLabel) return;
+    if (currentMode === 'revise') submitLabel.textContent = 'Revise & open in Hub';
+    else if (currentMode === 'review') submitLabel.textContent = 'Open Editing Hub';
+    else submitLabel.textContent = 'Generate first draft';
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
