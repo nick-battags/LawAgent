@@ -329,7 +329,7 @@
     document.querySelector('.hub-intake').style.display = 'none';
     editingHub.style.display = 'flex';
 
-    hubModeLabel.textContent = capitalize(data.mode || currentMode);
+    hubModeLabel.textContent = data.mode || currentMode;
     hubPostureLabel.textContent = (data.posture || 'neutral').toUpperCase();
 
     currentChanges = data.changes || [];
