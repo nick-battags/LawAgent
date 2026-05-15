@@ -263,11 +263,15 @@ def _require_admin(f):
     return wrapper
 
 
+def _cf_access_configured() -> bool:
+    return bool(os.environ.get("CF_ACCESS_TEAM_DOMAIN") and os.environ.get("CF_ACCESS_AUD"))
+
+
 @app.get("/admin")
 def admin():
-    # On the public hostname, validate CF Access JWT; return 404 on failure to
-    # avoid leaking that an admin route exists.
-    if request.host == _CF_PUBLIC_HOST:
+    # On the public hostname with CF Access configured, validate the JWT or 404.
+    # When CF Access is not yet configured, fall through to the normal PIN flow.
+    if request.host == _CF_PUBLIC_HOST and _cf_access_configured():
         if not _cf_access_valid():
             return Response(status=404)
         session["admin_authed"] = True
@@ -280,8 +284,8 @@ def admin():
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
-    # On the public hostname, hide the login page behind the CF gate too.
-    if request.host == _CF_PUBLIC_HOST and not _cf_access_valid():
+    # Hide the login page on the public hostname when CF Access is configured.
+    if request.host == _CF_PUBLIC_HOST and _cf_access_configured() and not _cf_access_valid():
         return Response(status=404)
 
     if not ADMIN_PIN:
