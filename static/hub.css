@@ -279,28 +279,41 @@ button.primary.btn-sm { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
 
 .hub-doc-pane {
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: 1.5rem 1.5rem 3rem;
   border-right: 1px solid var(--border);
+  background: #0B0C10;
 }
 
-.doc-viewer { }
+.doc-viewer {
+  background: #FAFAF7;
+  color: #1a1a1a;
+  border-radius: 8px;
+  padding: 2.5rem 3rem;
+  max-width: 850px;
+  margin: 0 auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  min-height: calc(100vh - 200px);
+}
+
 .doc-text {
-  font-family: 'Georgia', serif;
-  font-size: 0.92rem;
-  line-height: 1.75;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 0.95rem;
+  line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #d8d9e0;
+  color: #1a1a1a;
 }
 
 .change-mark {
   border-radius: 2px;
   cursor: pointer;
-  padding: 1px 0;
+  padding: 1px 2px;
+  transition: background 0.15s;
 }
-.change-mark.sev-high { background: rgba(224, 82, 82, 0.2); border-bottom: 2px solid var(--sev-high); }
-.change-mark.sev-med  { background: rgba(212,151,58, 0.18); border-bottom: 2px solid var(--sev-med); }
-.change-mark.sev-low  { background: rgba(90,158,111, 0.15); border-bottom: 2px solid var(--sev-low); }
+.change-mark.sev-high { background: rgba(224, 82, 82, 0.18); border-bottom: 2px solid var(--sev-high); }
+.change-mark.sev-med  { background: rgba(212,151,58, 0.22);  border-bottom: 2px solid var(--sev-med); }
+.change-mark.sev-low  { background: rgba(90,158,111, 0.22);  border-bottom: 2px solid var(--sev-low); }
+.change-mark:hover    { background: rgba(139,147,204,0.25); }
 
 /* ── Side pane ───────────────────────────────────────────────────────────── */
 
@@ -410,9 +423,9 @@ button.primary.btn-sm { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
   border: 1px solid var(--border);
   color: #777;
 }
-.action-badge.action-accepted, .action-badge.action-accept { color: var(--sev-low); border-color: var(--sev-low); }
-.action-badge.action-rejected, .action-badge.action-reject { color: var(--sev-high); border-color: var(--sev-high); }
-.action-badge.action-edited,   .action-badge.action-edit   { color: var(--accent); border-color: var(--accent); }
+.action-badge.action-accepted  { color: var(--sev-low);  border-color: var(--sev-low); }
+.action-badge.action-rejected  { color: var(--sev-high); border-color: var(--sev-high); }
+.action-badge.action-edited    { color: var(--accent);   border-color: var(--accent); }
 .action-badge.action-dismissed { color: #555; }
 
 .card-why, .card-source { font-size: 0.83rem; color: #bbb; margin-bottom: 0.35rem; line-height: 1.5; }
