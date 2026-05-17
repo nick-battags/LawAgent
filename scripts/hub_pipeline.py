@@ -162,15 +162,17 @@ def _run_issue_spotter(
         '[\n'
         '  {\n'
         '    "clause_anchor": "§ 7.4",\n'
-        '    "category": "<one of: ' + ", ".join(sorted(VALID_CATEGORIES)) + '>",\n'
+        '    "category": "<MUST be exactly one of: ' + " | ".join(sorted(VALID_CATEGORIES)) + '. If none fits, omit this change entirely.>",\n'
         '    "severity": "high|med|low",\n'
         '    "kind": "redline",\n'
-        '    "original_text": "exact text span being changed",\n'
+        '    "original_text": "verbatim substring of the DRAFT text above (≥40 chars). If you cannot quote a verbatim span, use kind=\'missing_clause\' instead.",\n'
         '    "proposed_text": "replacement text",\n'
         '    "rationale": "Why this matters for a ' + posture + '-side party",\n'
         '    "source_ref": "optional: playbook section or clause"\n'
         '  }\n'
         ']\n\n'
+        "Rules: category MUST be one of the listed values — any other string is invalid and that item must be omitted. "
+        "original_text MUST be a verbatim substring of the DRAFT. "
         "Output ONLY the JSON array, no explanation."
     )
 
@@ -209,7 +211,7 @@ def _run_missing_clause_proposer(
         '[\n'
         '  {\n'
         '    "clause_anchor": null,\n'
-        '    "category": "<category from vocabulary>",\n'
+        '    "category": "<MUST be exactly one of: ' + " | ".join(sorted(VALID_CATEGORIES)) + '. If none fits, omit this item.>",\n'
         '    "severity": "high|med|low",\n'
         '    "kind": "missing_clause",\n'
         '    "original_text": null,\n'
@@ -218,6 +220,7 @@ def _run_missing_clause_proposer(
         '    "source_ref": null\n'
         '  }\n'
         ']\n\n'
+        "Rule: category MUST be one of the listed values — any other string is invalid and that item must be omitted. "
         "Output ONLY the JSON array."
     )
 
@@ -230,7 +233,9 @@ def _run_missing_clause_proposer(
         for c in changes[:max_missing]:
             c["kind"] = "missing_clause"
             c["original_text"] = None
-            result.append(_normalize_change(c))
+            normalized = _normalize_change(c)
+            if _valid_change(normalized):
+                result.append(normalized)
         return result
     except Exception as exc:
         logger.error("Missing-clause proposer failed: %s", exc)
@@ -301,7 +306,9 @@ def _generate_draft(
         f"{context_text}\n\n"
         "Draft the complete contract. Use standard section numbering (§ 1, § 2, ...). "
         "Be precise. Include all standard provisions for this document type. "
-        "Output ONLY the contract text, no explanations."
+        "Output ONLY the contract text, no explanations. "
+        "Output PLAIN TEXT — no HTML tags, no markdown, no asterisks, no underscores. "
+        "Separate paragraphs with blank lines only."
     )
 
     return provider._generate(gen_prompt, model=provider.generator_model, temperature=0.3)
@@ -333,7 +340,9 @@ def _revise_draft(
         f"ORIGINAL DRAFT:\n{original_text[:8000]}\n\n"
         f"CORPUS PRECEDENTS:\n{corpus_text}\n\n"
         f"{context_text}\n\n"
-        "Produce the revised contract. Preserve section numbering. Output ONLY the revised contract text."
+        "Produce the revised contract. Preserve section numbering. Output ONLY the revised contract text. "
+        "Output PLAIN TEXT — no HTML tags, no markdown, no asterisks, no underscores. "
+        "Separate paragraphs with blank lines only."
     )
 
     return provider._generate(rev_prompt, model=provider.generator_model, temperature=0.2)
@@ -513,7 +522,19 @@ def run_hub_session(
         covered_cats = {c["category"] for c in redline_changes}
         missing_changes = [c for c in missing_changes if c["category"] not in covered_cats]
 
-        all_changes = redline_changes + missing_changes
+        # Enforce global missing-clause cap: the spotter can also emit
+        # kind='missing_clause' entries (up to max_changes=14) which bypass
+        # the 5-cap on the dedicated proposer. Cap the merged total.
+        mc_kept = 0
+        capped: list[dict] = []
+        for c in redline_changes + missing_changes:
+            if c.get("kind") == "missing_clause":
+                if mc_kept < max_missing:
+                    capped.append(c)
+                    mc_kept += 1
+            else:
+                capped.append(c)
+        all_changes = capped
 
         # ── Step 6.5: rehydrate placeholders → real names BEFORE persistence ──
         # The LLM ran on anonymized text, so original_text / proposed_text /

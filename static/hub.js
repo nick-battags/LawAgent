@@ -329,7 +329,7 @@
     document.querySelector('.hub-intake').style.display = 'none';
     editingHub.style.display = 'flex';
 
-    hubModeLabel.textContent = capitalize(data.mode || currentMode);
+    hubModeLabel.textContent = data.mode || currentMode;
     hubPostureLabel.textContent = (data.posture || 'neutral').toUpperCase();
 
     currentChanges = data.changes || [];
@@ -519,9 +519,10 @@
   }
 
   function updateActionBadges(idx, action) {
+    const canonical = { accept: 'accepted', reject: 'rejected', edit: 'edited', dismiss: 'dismissed' }[action] || action;
     document.querySelectorAll(`.action-badge[data-idx="${idx}"]`).forEach(b => {
-      b.textContent = actionLabel(action);
-      b.className = `action-badge action-${action}`;
+      b.textContent = actionLabel(canonical);
+      b.className = `action-badge action-${canonical}`;
     });
   }
 
