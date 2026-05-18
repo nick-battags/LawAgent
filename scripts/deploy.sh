@@ -18,7 +18,7 @@ set -euo pipefail
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
 REGION=us-central1
 SERVICE=lawagent-app
-IMAGE="gcr.io/${PROJECT_ID}/${SERVICE}"
+IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/lawagent/${SERVICE}"
 
 BUILD=false
 for arg in "$@"; do
