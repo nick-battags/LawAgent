@@ -1720,6 +1720,52 @@ def hub_sweep():
     })
 
 
+@app.post("/api/v2/corpus/ingest-datasets")
+def v2_ingest_datasets():
+    """Bulk ingest CUAD and/or MAUD into clause_chunks via Cohere Embed v4.
+
+    Authenticated by X-Scheduler-Secret header (same as /api/v2/hub/sweep).
+    Fires a background thread and returns 202 immediately.
+
+    Body: {"dataset": "cuad"|"maud"|"all", "max_contracts": int}
+    """
+    if not _scheduler_authed():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get("dataset", "cuad")).lower()
+    max_contracts = int(payload.get("max_contracts", 200))
+
+    if dataset not in {"cuad", "maud", "all"}:
+        return jsonify({"error": "dataset must be cuad, maud, or all"}), 400
+
+    job_id = _secrets.token_hex(8)
+    logger.info("Ingest job %s starting: dataset=%s max_contracts=%d", job_id, dataset, max_contracts)
+
+    def run() -> None:
+        try:
+            from scripts.corpus.ingest_datasets import (
+                ingest_cuad_to_pgvector,
+                ingest_maud_to_pgvector,
+            )
+            results = []
+            if dataset in {"cuad", "all"}:
+                results.append(ingest_cuad_to_pgvector(max_contracts))
+            if dataset in {"maud", "all"}:
+                results.append(ingest_maud_to_pgvector(max_contracts))
+            logger.info("Ingest job %s complete: %s", job_id, results)
+        except Exception:
+            logger.exception("Ingest job %s failed", job_id)
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({
+        "job_id": job_id,
+        "dataset": dataset,
+        "max_contracts": max_contracts,
+        "status": "started",
+    }), 202
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true", "yes"}
