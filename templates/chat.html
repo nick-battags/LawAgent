@@ -31,18 +31,22 @@
 
   <main class="chat-layout">
 
-    <aside class="corpus-sidebar">
+    <!-- Left: session sources sidebar -->
+    <aside class="sources-sidebar">
       <div class="sidebar-header">
-        <h2>Corpus</h2>
-        <span id="corpusCount" class="muted">— sources</span>
+        <h2>Sources</h2>
+        <button id="addSourceBtn" class="btn-add">+ Add</button>
       </div>
-      <p class="sidebar-hint muted">
-        Every answer is grounded in these curated M&amp;A playbook excerpts
-        (Cohere Embed v4 &#8594; Neon pgvector &#8594; Cohere Rerank 3.5).
+      <p class="sidebar-hint muted" id="sourcesEmptyHint">
+        No sources yet. Upload a playbook, term sheet, or prior draft to ground
+        the conversation in your own materials. The background M&amp;A corpus is
+        searched automatically on every question.
       </p>
-      <ul id="corpusList" class="corpus-list"></ul>
+      <ul id="sourcesList" class="sources-list"></ul>
+      <input type="file" id="sourceFileInput" accept=".pdf,.docx,.txt" hidden>
     </aside>
 
+    <!-- Right: chat thread + input -->
     <section class="chat-main">
       <div id="chatThread" class="chat-thread">
         <div class="chat-empty">

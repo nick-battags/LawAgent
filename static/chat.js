@@ -3,20 +3,22 @@
 
   const $ = id => document.getElementById(id);
 
-  const consentModal  = $('consentModal');
-  const consentAccept = $('consentAccept');
-  const corpusList    = $('corpusList');
-  const corpusCount   = $('corpusCount');
-  const chatThread    = $('chatThread');
-  const chatForm      = $('chatForm');
-  const chatInput     = $('chatInput');
-  const sendBtn       = $('sendBtn');
-  const sendLabel     = $('sendLabel');
-  const sendSpinner   = $('sendSpinner');
-
-  let consentToken = sessionStorage.getItem('lawagent_consent_token') || null;
+  const consentModal    = $('consentModal');
+  const consentAccept   = $('consentAccept');
+  const sourcesList     = $('sourcesList');
+  const sourcesEmptyHint = $('sourcesEmptyHint');
+  const addSourceBtn    = $('addSourceBtn');
+  const sourceFileInput = $('sourceFileInput');
+  const chatThread      = $('chatThread');
+  const chatForm        = $('chatForm');
+  const chatInput       = $('chatInput');
+  const sendBtn         = $('sendBtn');
+  const sendLabel       = $('sendLabel');
+  const sendSpinner     = $('sendSpinner');
 
   // ── Consent ───────────────────────────────────────────────────────────────
+
+  let consentToken = sessionStorage.getItem('lawagent_consent_token') || null;
 
   function showModal() { consentModal.style.display = 'flex'; }
   function hideModal() { consentModal.style.display = 'none'; }
@@ -38,29 +40,98 @@
     });
   }
 
-  // ── Corpus sidebar ────────────────────────────────────────────────────────
+  // ── Session ID ────────────────────────────────────────────────────────────
+  // Persisted in sessionStorage so a reload keeps the same Supermemory container.
 
-  async function loadCorpus() {
+  let sessionId = sessionStorage.getItem('lawagent_chat_session_id');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('lawagent_chat_session_id', sessionId);
+  }
+
+  // ── Sources sidebar ───────────────────────────────────────────────────────
+
+  async function loadSources() {
     try {
-      const r = await fetch('/api/v2/corpus/chunks');
+      const r = await fetch(`/api/v2/context/list?session_id=${encodeURIComponent(sessionId)}`);
       const d = await r.json();
-      const chunks = d.chunks || [];
-      corpusCount.textContent = `${chunks.length} sources`;
-      corpusList.innerHTML = chunks.map((c, i) => `
-        <li class="corpus-item" id="corpus-item-${i}">
-          <span class="corpus-title">${escapeHtml(c.title || 'Untitled')}</span>
-          <span class="corpus-meta">
-            <span class="corpus-category">${escapeHtml((c.category || '').replace(/_/g, ' '))}</span>
-            ${c.posture ? `<span class="corpus-posture">${escapeHtml(c.posture)}</span>` : ''}
-          </span>
-        </li>
-      `).join('');
+      renderSources(d.sources || []);
     } catch (err) {
-      corpusCount.textContent = 'unavailable';
-      console.error('Corpus load failed:', err);
+      console.warn('Sources list failed:', err);
     }
   }
-  loadCorpus();
+
+  function renderSources(sources) {
+    if (!sources.length) {
+      sourcesEmptyHint.style.display = '';
+      sourcesList.innerHTML = '';
+      return;
+    }
+    sourcesEmptyHint.style.display = 'none';
+    sourcesList.innerHTML = sources.map(s => `
+      <li class="source-item" data-id="${escapeAttr(s.id || '')}">
+        <div class="source-info">
+          <span class="source-name" title="${escapeAttr(s.filename)}">${escapeHtml(s.filename)}</span>
+          <span class="source-meta">${(s.char_count || 0).toLocaleString()} chars</span>
+        </div>
+        <button class="source-remove" aria-label="Remove ${escapeAttr(s.filename)}" title="Remove">×</button>
+      </li>
+    `).join('');
+
+    sourcesList.querySelectorAll('.source-remove').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const li = btn.closest('.source-item');
+        const id = li.dataset.id;
+        const name = li.querySelector('.source-name').textContent;
+        if (!id) return;
+        if (!confirm(`Remove "${name}" from this session?`)) return;
+        btn.disabled = true;
+        try {
+          await fetch(
+            `/api/v2/context/${encodeURIComponent(id)}?session_id=${encodeURIComponent(sessionId)}`,
+            { method: 'DELETE' }
+          );
+        } finally {
+          await loadSources();
+        }
+      });
+    });
+  }
+
+  addSourceBtn.addEventListener('click', () => sourceFileInput.click());
+
+  sourceFileInput.addEventListener('change', async () => {
+    const file = sourceFileInput.files[0];
+    if (!file) return;
+    addSourceBtn.disabled = true;
+    addSourceBtn.textContent = 'Uploading…';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch(
+        `/api/v2/context/attach?session_id=${encodeURIComponent(sessionId)}`,
+        {
+          method: 'POST',
+          headers: { 'X-Consent-Token': consentToken || '' },
+          body: fd,
+        }
+      );
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ error: r.statusText }));
+        alert(`Upload failed: ${err.error || r.statusText}`);
+      } else {
+        await loadSources();
+      }
+    } catch (err) {
+      alert(`Upload error: ${err.message}`);
+    } finally {
+      addSourceBtn.disabled = false;
+      addSourceBtn.textContent = '+ Add';
+      sourceFileInput.value = '';
+    }
+  });
+
+  loadSources();
 
   // ── Chat submit ───────────────────────────────────────────────────────────
 
@@ -103,7 +174,7 @@
         'Content-Type': 'application/json',
         'X-Consent-Token': consentToken || '',
       },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, session_id: sessionId }),
     });
 
     if (!r.ok) {
@@ -135,7 +206,6 @@
         }
         if (payload.citations) {
           renderCitations(citesEl, payload.citations);
-          highlightCited(payload.citations);
         }
       }
     }
@@ -171,19 +241,9 @@
   function renderCitations(el, cites) {
     if (!cites || !cites.length) return;
     el.innerHTML = 'Sources: ' + cites.map((c, n) => {
-      const idx = c.index !== undefined ? c.index : n;
       const title = escapeAttr(c.title || '');
-      return `<a href="#corpus-item-${idx}" title="${title}">[${n + 1}]</a>`;
+      return `<a href="#" title="${title}">[${n + 1}]</a>`;
     }).join(' ');
-  }
-
-  function highlightCited(cites) {
-    document.querySelectorAll('.corpus-item.cited').forEach(el => el.classList.remove('cited'));
-    cites.forEach((c, n) => {
-      const idx = c.index !== undefined ? c.index : n;
-      const el = document.getElementById(`corpus-item-${idx}`);
-      if (el) el.classList.add('cited');
-    });
   }
 
   function setBusy(busy) {
