@@ -1,26 +1,36 @@
-/* LawAgent landing page styles */
+/* LawAgent landing page styles — cream + burgundy editorial */
 
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
-  --accent: #8B93CC;
-  --accent-dim: rgba(139, 147, 204, 0.14);
-  --accent-border: rgba(139, 147, 204, 0.28);
-  --border: rgba(255, 255, 255, 0.08);
-  --surface: rgba(255, 255, 255, 0.04);
-  --surface-hover: rgba(255, 255, 255, 0.08);
-  --text: #e8e9f0;
-  --text-muted: #888;
-  --bg: #0B0C10;
+  --accent: #722F37;
+  --accent-strong: #5C1F26;
+  --accent-soft: #A55561;
+  --accent-dim: rgba(114, 47, 55, 0.10);
+  --accent-border: rgba(114, 47, 55, 0.30);
+  --border: #D9CFC0;
+  --border-strong: #B5A893;
+  --surface: rgba(31, 27, 23, 0.03);
+  --surface-hover: rgba(31, 27, 23, 0.06);
+  --text: #1F1B17;
+  --text-dim: #5C5247;
+  --text-muted: #8B7F70;
+  --bg: #F5EDDC;
+  --panel: #FBF7EE;
+  --card: #FAF6EE;
+  --font-serif: 'Newsreader', 'Source Serif Pro', 'Georgia', serif;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────── */
