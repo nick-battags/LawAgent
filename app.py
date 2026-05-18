@@ -207,7 +207,7 @@ def index():
 
 @app.get("/chat")
 def chat():
-    return render_template("index.html")
+    return render_template("chat.html")
 
 
 def _admin_authed() -> bool:
@@ -920,6 +920,111 @@ def v2_corpus_diagnostic():
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/v2/corpus/chunks")
+def v2_corpus_chunks():
+    """Return titles + categories of indexed corpus chunks.
+
+    Public, metadata-only — no chunk text. Powers the chat sidebar listing.
+    """
+    try:
+        from scripts.pgvector_store import PgvectorCorpusStore
+        import psycopg
+        store = PgvectorCorpusStore()
+        with psycopg.connect(store.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT chunk_uid, title, category, posture, source_system "
+                "FROM clause_chunks WHERE embedding IS NOT NULL "
+                "ORDER BY category, title"
+            )
+            cols = [d[0] for d in cur.description]
+            chunks = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return jsonify({"chunks": chunks, "count": len(chunks)})
+    except Exception as exc:
+        return jsonify({"chunks": [], "count": 0, "error": str(exc)}), 500
+
+
+@app.post("/api/v2/chat")
+def v2_chat():
+    """Corpus Q&A endpoint for the standalone chat surface.
+
+    Takes {query}, retrieves from pgvector (Cohere embed-v4 → Neon),
+    generates with Gemini 2.5 Flash, streams SSE tokens + citations.
+    """
+    import json as _json
+
+    payload = request.get_json(silent=True) or {}
+    query = str(payload.get("query", "")).strip()
+    if not query:
+        return jsonify({"error": "query required"}), 400
+    if len(query) > 500:
+        return jsonify({"error": "query too long (max 500 chars)"}), 400
+
+    if DEMO_MODE:
+        consent_token = request.headers.get("X-Consent-Token", "")
+        if not _valid_consent_token(consent_token):
+            return jsonify({"error": "Consent required"}), 403
+
+    def generate():
+        yield "data: {\"meta\": \"start\"}\n\n"
+        try:
+            from scripts.vector_store import get_demo_vector_store
+            from scripts.llm_provider import get_llm, VertexProvider
+
+            store = get_demo_vector_store()
+            chunks = store.query(query, top_k=8)
+
+            if not chunks:
+                yield _sse({"token": "No relevant corpus excerpts found for that query."})
+                yield "data: {\"done\": true}\n\n"
+                return
+
+            context_parts = []
+            for i, c in enumerate(chunks[:6], 1):
+                snippet = (c.get("text") or "")[:600]
+                context_parts.append(
+                    f"[{i}] {c.get('title', 'Unknown')} ({c.get('category', '')}):\n{snippet}"
+                )
+            context = "\n\n".join(context_parts)
+
+            prompt = (
+                "You are an expert M&A legal analyst. Answer the following question "
+                "using ONLY the corpus excerpts provided. Cite sources as [1], [2], etc. "
+                "Be precise and concise (under 350 words).\n\n"
+                f"QUESTION: {query}\n\n"
+                f"CORPUS EXCERPTS:\n{context}\n\n"
+                "Answer:"
+            )
+
+            provider = get_llm()
+            if not isinstance(provider, VertexProvider):
+                yield _sse({"token": "[Chat requires LLM_PROVIDER=vertex in production]"})
+            else:
+                answer = provider._generate(prompt, model=provider.generator_model, temperature=0.2)
+                words = answer.split(" ")
+                for i, word in enumerate(words):
+                    yield _sse({"token": word + (" " if i < len(words) - 1 else "")})
+
+            citations = [
+                {"title": c.get("title", ""), "category": c.get("category", ""), "index": i}
+                for i, c in enumerate(chunks[:6])
+            ]
+            yield _sse({"citations": citations})
+
+        except Exception as exc:
+            logger.error("v2_chat error: %s", exc)
+            yield _sse({"token": f"[Error: {exc}]"})
+        yield "data: {\"done\": true}\n\n"
+
+    def _sse(obj: dict) -> str:
+        return f"data: {_json.dumps(obj)}\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Demo mode guard ──────────────────────────────────────────────────────────

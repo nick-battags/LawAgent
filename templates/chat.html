@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LawAgent | Chat with the Corpus</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/chat.css">
+</head>
+<body class="chat-page">
+
+  <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+    <div class="modal-box">
+      <h2 id="consentTitle">Before you begin</h2>
+      <p>LawAgent is a portfolio demonstration tool, not a licensed legal service.
+         It does not establish an attorney-client relationship. Do not enter real
+         client information, personally identifiable information, or confidential
+         matter details.</p>
+      <p>By clicking <strong>I understand, continue</strong> you acknowledge that
+         outputs are AI-generated and should not be relied on as legal advice.</p>
+      <button id="consentAccept" class="primary">I understand, continue</button>
+    </div>
+  </div>
+
+  <header class="chat-header">
+    <a href="/" class="brand">LawAgent</a>
+    <div class="nav-right">
+      <a href="/hub" class="nav-link">Hub &#8599;</a>
+    </div>
+  </header>
+
+  <main class="chat-layout">
+
+    <aside class="corpus-sidebar">
+      <div class="sidebar-header">
+        <h2>Corpus</h2>
+        <span id="corpusCount" class="muted">— sources</span>
+      </div>
+      <p class="sidebar-hint muted">
+        Every answer is grounded in these curated M&amp;A playbook excerpts
+        (Cohere Embed v4 &#8594; Neon pgvector &#8594; Cohere Rerank 3.5).
+      </p>
+      <ul id="corpusList" class="corpus-list"></ul>
+    </aside>
+
+    <section class="chat-main">
+      <div id="chatThread" class="chat-thread">
+        <div class="chat-empty">
+          <h1>Ask the corpus</h1>
+          <p class="muted">e.g. &ldquo;What&rsquo;s a typical buy-side indemnification cap?&rdquo;
+             or &ldquo;How does a tipping basket differ from a deductible basket?&rdquo;</p>
+        </div>
+      </div>
+
+      <form id="chatForm" class="chat-input-row" novalidate>
+        <textarea id="chatInput" rows="2"
+          placeholder="Ask about M&amp;A drafting patterns…"
+          maxlength="500"></textarea>
+        <button type="submit" id="sendBtn" class="primary">
+          <span id="sendLabel">Send</span>
+          <span id="sendSpinner" class="spinner" hidden></span>
+        </button>
+      </form>
+      <p class="chat-disclaimer muted">
+        LawAgent demo — not legal advice. Sessions auto-expire in 24h.
+      </p>
+    </section>
+
+  </main>
+
+  <script src="/static/chat.js"></script>
+</body>
+</html>
