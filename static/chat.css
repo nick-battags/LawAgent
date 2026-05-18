@@ -1,4 +1,4 @@
-/* LawAgent corpus chat styles */
+/* LawAgent corpus chat styles — cream + burgundy editorial theme */
 
 /* ── Consent modal (not in styles.css scope for this page) ──────────── */
 
@@ -6,7 +6,7 @@
   display: flex;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(31, 27, 23, 0.55);
   backdrop-filter: blur(4px);
   z-index: 100;
   justify-content: center;
@@ -15,68 +15,74 @@
 }
 
 .modal-backdrop .modal-box {
-  background: #12131A;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: #FBF7EE;
+  border: 1px solid #D9CFC0;
   border-radius: 10px;
   padding: 2rem;
   max-width: 520px;
   width: 100%;
-  color: #e8e9f0;
+  color: #1F1B17;
+  box-shadow: 0 20px 60px rgba(31, 27, 23, 0.18);
 }
 
 .modal-backdrop .modal-box h2 {
-  font-family: 'Georgia', 'Times New Roman', serif;
+  font-family: 'Newsreader', 'Georgia', 'Times New Roman', serif;
+  font-weight: 600;
+  letter-spacing: -0.012em;
   margin: 0 0 1rem;
 }
 
 .modal-backdrop .modal-box p {
-  color: #9AA0B0;
-  line-height: 1.55;
+  color: #5C5247;
+  line-height: 1.6;
   margin: 0 0 1rem;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
 /* ── Button overrides (scoped to .chat-page so we don't touch /hub) ── */
 
 .chat-page button.primary {
-  background: #8B93CC;
-  color: #0B0C10;
+  background: #722F37;
+  color: #FBF7EE;
   border: none;
   border-radius: 7px;
   padding: 0.7rem 1.5rem;
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: background 0.15s, transform 0.15s;
+  font-family: inherit;
 }
 
-.chat-page button.primary:hover { opacity: 0.88; }
-.chat-page button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.chat-page button.primary:hover { background: #5C1F26; transform: translateY(-1px); }
+.chat-page button.primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 /* modal-box sits outside .chat-page in DOM so needs its own rule */
 .modal-backdrop .modal-box button.primary {
-  background: #8B93CC;
-  color: #0B0C10;
+  background: #722F37;
+  color: #FBF7EE;
   border: none;
   border-radius: 7px;
   padding: 0.7rem 1.5rem;
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   width: 100%;
   margin-top: 0.5rem;
-  transition: opacity 0.15s;
+  transition: background 0.15s, transform 0.15s;
+  font-family: inherit;
 }
 
-.modal-backdrop .modal-box button.primary:hover { opacity: 0.88; }
+.modal-backdrop .modal-box button.primary:hover { background: #5C1F26; transform: translateY(-1px); }
 
 .chat-page {
-  background: #0B0C10;
-  color: #e8e9f0;
+  background: #F5EDDC;
+  color: #1F1B17;
   height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────── */
@@ -88,7 +94,8 @@
   align-items: center;
   padding: 0 1.5rem;
   height: 56px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid #D9CFC0;
+  background: #FBF7EE;
 }
 
 /* ── Layout ──────────────────────────────────────────────────────────── */
@@ -108,10 +115,10 @@
 /* ── Sources sidebar ─────────────────────────────────────────────────── */
 
 .sources-sidebar {
-  border-right: 1px solid rgba(255,255,255,0.08);
+  border-right: 1px solid #D9CFC0;
   padding: 1.25rem;
   overflow-y: auto;
-  background: #0e0f16;
+  background: #F0E6D0;
   display: flex;
   flex-direction: column;
 }
@@ -128,12 +135,12 @@
   font-size: 1rem;
   font-weight: 600;
   margin: 0;
-  color: #e8e9f0;
+  color: #1F1B17;
 }
 
 .btn-add {
-  background: #8B93CC;
-  color: #0B0C10;
+  background: #722F37;
+  color: #FBF7EE;
   border: none;
   border-radius: 6px;
   padding: 0.28rem 0.65rem;
@@ -167,8 +174,8 @@
   padding: 0.5rem 0.6rem;
   border-radius: 6px;
   margin-bottom: 0.3rem;
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(31, 27, 23, 0.03);
+  border: 1px solid #D9CFC0;
 }
 
 .source-info {
@@ -178,7 +185,7 @@
 
 .source-name {
   font-size: 0.82rem;
-  color: #d0d0dc;
+  color: #5C5247;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -203,7 +210,7 @@
   transition: color 0.12s;
 }
 
-.source-remove:hover { color: #D97084; }
+.source-remove:hover { color: #B33A3A; }
 
 /* ── Chat main ────────────────────────────────────────────────────────── */
 
@@ -232,7 +239,7 @@
 .chat-empty h1 {
   font-family: 'Georgia', 'Times New Roman', serif;
   font-size: 2rem;
-  color: #e8e9f0;
+  color: #1F1B17;
   margin: 0 0 0.6rem;
   font-weight: 400;
 }
@@ -257,9 +264,9 @@
 
 .msg.user .bubble {
   display: inline-block;
-  background: rgba(139,147,204,0.12);
-  border: 1px solid rgba(139,147,204,0.25);
-  color: #e8e9f0;
+  background: rgba(114, 47, 55, 0.10);
+  border: 1px solid rgba(114, 47, 55, 0.22);
+  color: #1F1B17;
   padding: 0.7rem 1rem;
   border-radius: 14px 14px 4px 14px;
   text-align: left;
@@ -268,7 +275,7 @@
 }
 
 .msg.assistant .bubble {
-  color: #e8e9f0;
+  color: #1F1B17;
   font-size: 0.95rem;
   line-height: 1.7;
   white-space: pre-wrap;
@@ -281,7 +288,7 @@
 }
 
 .msg.assistant .citation {
-  color: #8B93CC;
+  color: #722F37;
   margin-right: 0.3rem;
   cursor: help;
   font-weight: 600;
@@ -295,14 +302,14 @@
   gap: 0.6rem;
   align-items: flex-end;
   padding: 0.85rem 0 0.5rem;
-  border-top: 1px solid rgba(255,255,255,0.08);
+  border-top: 1px solid #D9CFC0;
 }
 
 .chat-input-row textarea {
   flex: 1;
-  background: rgba(255,255,255,0.04);
-  color: #e8e9f0;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(31, 27, 23, 0.04);
+  color: #1F1B17;
+  border: 1px solid #D9CFC0;
   border-radius: 8px;
   padding: 0.7rem 0.85rem;
   font-family: inherit;
@@ -316,7 +323,7 @@
 
 .chat-input-row textarea:focus {
   outline: none;
-  border-color: #8B93CC;
+  border-color: #722F37;
 }
 
 .chat-disclaimer {
@@ -333,8 +340,8 @@
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(0,0,0,0.3);
-  border-top-color: #0B0C10;
+  border: 2px solid rgba(251, 247, 238, 0.4);
+  border-top-color: #FBF7EE;
   border-radius: 50%;
   animation: chat-spin 0.7s linear infinite;
   vertical-align: middle;
