@@ -240,9 +240,9 @@
 
   function renderCitations(el, cites) {
     if (!cites || !cites.length) return;
-    el.innerHTML = 'Sources: ' + cites.map((c, n) => {
-      const title = escapeAttr(c.title || '');
-      return `<a href="#" title="${title}">[${n + 1}]</a>`;
+    el.innerHTML = 'Sources: ' + cites.map((c, i) => {
+      const tip = escapeAttr(c.title || (c.text || '').substring(0, 120) || `Source ${i + 1}`);
+      return `<span class="citation" title="${tip}">[${i + 1}]</span>`;
     }).join(' ');
   }
 

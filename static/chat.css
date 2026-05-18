@@ -1,5 +1,75 @@
 /* LawAgent corpus chat styles */
 
+/* ── Consent modal (not in styles.css scope for this page) ──────────── */
+
+.modal-backdrop {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+  padding: 1.5rem;
+}
+
+.modal-backdrop .modal-box {
+  background: #12131A;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 2rem;
+  max-width: 520px;
+  width: 100%;
+  color: #e8e9f0;
+}
+
+.modal-backdrop .modal-box h2 {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  margin: 0 0 1rem;
+}
+
+.modal-backdrop .modal-box p {
+  color: #9AA0B0;
+  line-height: 1.55;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+/* ── Button overrides (scoped to .chat-page so we don't touch /hub) ── */
+
+.chat-page button.primary {
+  background: #8B93CC;
+  color: #0B0C10;
+  border: none;
+  border-radius: 7px;
+  padding: 0.7rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.chat-page button.primary:hover { opacity: 0.88; }
+.chat-page button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* modal-box sits outside .chat-page in DOM so needs its own rule */
+.modal-backdrop .modal-box button.primary {
+  background: #8B93CC;
+  color: #0B0C10;
+  border: none;
+  border-radius: 7px;
+  padding: 0.7rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 0.5rem;
+  transition: opacity 0.15s;
+}
+
+.modal-backdrop .modal-box button.primary:hover { opacity: 0.88; }
+
 .chat-page {
   background: #0B0C10;
   color: #e8e9f0;
@@ -210,15 +280,11 @@
   color: #666;
 }
 
-.msg.assistant .citations a {
+.msg.assistant .citation {
   color: #8B93CC;
-  text-decoration: none;
-  margin-right: 0.4rem;
-  transition: color 0.12s;
-}
-
-.msg.assistant .citations a:hover {
-  color: #adb5e8;
+  margin-right: 0.3rem;
+  cursor: help;
+  font-weight: 600;
 }
 
 /* ── Input row ────────────────────────────────────────────────────────── */
