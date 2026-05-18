@@ -33,11 +33,7 @@ def ingest_cuad_to_pgvector(max_contracts: int = 510) -> dict[str, Any]:
     from datasets import load_dataset
 
     logger.info("CUAD ingest: loading dataset (max_contracts=%d)…", max_contracts)
-    ds = load_dataset("theatticusproject/cuad-qa", split="train")
-
-    # Defensive: print first-row keys once so drift is visible in logs
-    if len(ds) > 0:
-        logger.info("CUAD row keys: %s", list(ds[0].keys()))
+    ds = load_dataset("theatticusproject/cuad-qa", split="train", streaming=True, trust_remote_code=True)
 
     chunks: list[dict] = []
     seen_contracts: set[str] = set()
@@ -93,10 +89,7 @@ def ingest_maud_to_pgvector(max_contracts: int = 200) -> dict[str, Any]:
     from datasets import load_dataset
 
     logger.info("MAUD ingest: loading dataset (max_contracts=%d)…", max_contracts)
-    ds = load_dataset("theatticusproject/maud", split="train")
-
-    if len(ds) > 0:
-        logger.info("MAUD row keys: %s", list(ds[0].keys()))
+    ds = load_dataset("theatticusproject/maud", split="train", streaming=True, trust_remote_code=True)
 
     chunks: list[dict] = []
     seen_contracts: set[str] = set()
