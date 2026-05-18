@@ -80,10 +80,10 @@ def retrieve_and_grade(
     category: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
-    from scripts.vector_store import get_vector_store
+    from scripts.vector_store import get_demo_vector_store
     from scripts.llm_provider import get_llm
 
-    store = get_vector_store()
+    store = get_demo_vector_store()
     llm = get_llm()
     runtime_mode = resolve_runtime_mode(mode)
     llm_available = llm.is_available()

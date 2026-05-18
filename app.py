@@ -202,7 +202,12 @@ def add_dev_headers(response):
 
 @app.get("/")
 def index():
-    return redirect("/hub")
+    return render_template("landing.html")
+
+
+@app.get("/chat")
+def chat():
+    return render_template("chat.html")
 
 
 def _admin_authed() -> bool:
@@ -914,6 +919,191 @@ def v2_corpus_diagnostic():
             "sample_titles": sample_chunks,
         })
     except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/v2/corpus/chunks")
+def v2_corpus_chunks():
+    """Return titles + categories of indexed corpus chunks.
+
+    Public, metadata-only — no chunk text. Powers the chat sidebar listing.
+    """
+    try:
+        from scripts.pgvector_store import PgvectorCorpusStore
+        import psycopg
+        store = PgvectorCorpusStore()
+        with psycopg.connect(store.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT chunk_uid, title, category, posture, source_system "
+                "FROM clause_chunks WHERE embedding IS NOT NULL "
+                "ORDER BY category, title"
+            )
+            cols = [d[0] for d in cur.description]
+            chunks = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return jsonify({"chunks": chunks, "count": len(chunks)})
+    except Exception as exc:
+        return jsonify({"chunks": [], "count": 0, "error": str(exc)}), 500
+
+
+@app.post("/api/v2/chat")
+def v2_chat():
+    """Corpus Q&A for the standalone chat surface.
+
+    Takes {query, session_id?}. Retrieves from pgvector (background corpus)
+    + Supermemory kind=context (session-uploaded docs). Streams SSE tokens
+    + a terminal citations event.
+    """
+    import json as _json
+
+    payload = request.get_json(silent=True) or {}
+    query = str(payload.get("query", "")).strip()
+    session_id = str(payload.get("session_id", "")).strip()
+    if not query:
+        return jsonify({"error": "query required"}), 400
+    if len(query) > 500:
+        return jsonify({"error": "query too long (max 500 chars)"}), 400
+
+    if DEMO_MODE:
+        consent_token = request.headers.get("X-Consent-Token", "")
+        if not _valid_consent_token(consent_token):
+            return jsonify({"error": "Consent required"}), 403
+
+    def _sse(obj: dict) -> str:
+        return f"data: {_json.dumps(obj)}\n\n"
+
+    def generate():
+        yield "data: {\"meta\": \"start\"}\n\n"
+        try:
+            from scripts.vector_store import get_demo_vector_store
+            from scripts.llm_provider import get_llm, VertexProvider
+
+            # Background corpus (pgvector)
+            store = get_demo_vector_store()
+            corpus_chunks = store.query(query, top_k=6)
+
+            # Session-uploaded context (Supermemory kind=context)
+            session_chunks: list[dict] = []
+            if session_id:
+                try:
+                    from scripts.session_memory import get_session_memory
+                    mem = get_session_memory(session_id)
+                    raw = mem.recall(query=query, kind="context", limit=4)
+                    session_chunks = [
+                        {
+                            "text": r.get("content", ""),
+                            "title": (r.get("metadata") or {}).get("source", "Uploaded document"),
+                            "category": "session_context",
+                        }
+                        for r in raw
+                    ]
+                except Exception as exc:
+                    logger.warning("Chat session context retrieval failed: %s", exc)
+
+            all_chunks = corpus_chunks + session_chunks
+            if not all_chunks:
+                yield _sse({"token": "No relevant content found for that query."})
+                yield "data: {\"done\": true}\n\n"
+                return
+
+            context_parts: list[str] = []
+            for i, c in enumerate(all_chunks[:8], 1):
+                snippet = (c.get("text") or "")[:600]
+                label = c.get("title", "Unknown")
+                context_parts.append(f"[{i}] {label}:\n{snippet}")
+            context = "\n\n".join(context_parts)
+
+            prompt = (
+                "You are an expert M&A legal analyst. Answer the following question "
+                "using ONLY the excerpts provided below. Cite sources as [1], [2], etc. "
+                "Be precise and concise (under 350 words).\n\n"
+                f"QUESTION: {query}\n\n"
+                f"EXCERPTS:\n{context}\n\n"
+                "Answer:"
+            )
+
+            provider = get_llm()
+            if not isinstance(provider, VertexProvider):
+                yield _sse({"token": "[Chat requires LLM_PROVIDER=vertex in production]"})
+            else:
+                answer = provider._generate(prompt, model=provider.generator_model, temperature=0.2)
+                words = answer.split(" ")
+                for i, word in enumerate(words):
+                    yield _sse({"token": word + (" " if i < len(words) - 1 else "")})
+
+            citations = [
+                {"title": c.get("title", ""), "category": c.get("category", ""), "index": i}
+                for i, c in enumerate(all_chunks[:8])
+            ]
+            yield _sse({"citations": citations})
+
+        except Exception as exc:
+            logger.error("v2_chat error: %s", exc)
+            yield _sse({"token": f"[Error: {exc}]"})
+        yield "data: {\"done\": true}\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/v2/context/list")
+def v2_context_list():
+    """List session-uploaded context documents for the chat sidebar.
+
+    Uses Supermemory search filtered to kind=context for this session.
+    Returns deduped source list (multiple chunks may exist per file).
+    """
+    session_id = request.args.get("session_id", "").strip()
+    if not session_id:
+        return jsonify({"sources": []})
+    try:
+        from scripts.session_memory import get_session_memory
+        mem = get_session_memory(session_id)
+        client = mem._get_client()
+        response = client.search.execute(
+            q=" ",
+            container_tag=session_id,
+            limit=50,
+            filters={"AND": [{"key": "kind", "value": "context"}]},
+        )
+        sources: list[dict] = []
+        for r in (response.results or []):
+            meta: dict = getattr(r, "metadata", {}) or {}
+            sources.append({
+                "id": r.document_id,
+                "filename": meta.get("source") or meta.get("title") or "Untitled",
+                "char_count": meta.get("char_count") or 0,
+            })
+        # Dedup by id — multiple chunks per upload collapse to one entry
+        seen: set = set()
+        deduped: list[dict] = []
+        for s in sources:
+            key = s["id"] or s["filename"]
+            if key not in seen:
+                seen.add(key)
+                deduped.append(s)
+        return jsonify({"sources": deduped, "count": len(deduped)})
+    except Exception as exc:
+        logger.warning("context list failed for session %s: %s", session_id, exc)
+        return jsonify({"sources": [], "error": str(exc)}), 500
+
+
+@app.delete("/api/v2/context/<doc_id>")
+def v2_context_delete(doc_id: str):
+    """Remove a session context document from Supermemory."""
+    session_id = request.args.get("session_id", "").strip()
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+    try:
+        from scripts.session_memory import get_session_memory
+        mem = get_session_memory(session_id)
+        client = mem._get_client()
+        client.memories.forget(container_tag=session_id, id=doc_id)
+        return jsonify({"deleted": doc_id})
+    except Exception as exc:
+        logger.warning("context delete failed for doc %s session %s: %s", doc_id, session_id, exc)
         return jsonify({"error": str(exc)}), 500
 
 

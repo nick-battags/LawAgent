@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LawAgent | M&A Intelligence Platform</title>
+  <link rel="stylesheet" href="/static/landing.css">
+</head>
+<body>
+
+  <header class="land-header">
+    <nav class="land-nav">
+      <span class="land-brand">LawAgent</span>
+      <span class="land-pill">Portfolio Demo</span>
+    </nav>
+  </header>
+
+  <main class="land-main">
+
+    <section class="land-hero">
+      <p class="land-eyebrow">M&amp;A intelligence platform</p>
+      <h1 class="land-h1">Two AI tools for M&amp;A legal work</h1>
+      <p class="land-lede">
+        Generate and redline contracts or issue-spot an existing agreement —
+        powered by Cohere embeddings, Neon pgvector, and Gemini 2.5.
+      </p>
+    </section>
+
+    <section class="land-cards">
+
+      <a href="/hub" class="land-card" aria-label="Open Drafting & Review Hub">
+        <div class="land-card-icon" aria-hidden="true">&#9636;</div>
+        <div class="land-card-body">
+          <h2 class="land-card-title">Drafting &amp; Review Hub</h2>
+          <p class="land-card-desc">
+            Generate a first draft from a prompt, revise your own draft, or review
+            an existing agreement. Inline redlines, missing-clause detection, and
+            a clause Q&amp;A panel in one editing workspace.
+          </p>
+          <ul class="land-card-tags">
+            <li>Generate from prompt</li>
+            <li>Redline &amp; revise</li>
+            <li>Missing-clause detector</li>
+            <li>Clause Q&amp;A</li>
+          </ul>
+        </div>
+        <span class="land-card-cta">Open Hub &#8599;</span>
+      </a>
+
+      <a href="/chat" class="land-card" aria-label="Open M&A Issue Spotter">
+        <div class="land-card-icon" aria-hidden="true">&#9635;</div>
+        <div class="land-card-body">
+          <h2 class="land-card-title">M&amp;A Issue Spotter</h2>
+          <p class="land-card-desc">
+            Paste any merger agreement, SPA, APA, or LOI. The corrective RAG
+            pipeline retrieves playbook guidance, grades it for relevance, and
+            surfaces specific clause-level issues with source citations.
+          </p>
+          <ul class="land-card-tags">
+            <li>CRAG pipeline</li>
+            <li>Source citations</li>
+            <li>Template Q&amp;A</li>
+            <li>Session context</li>
+          </ul>
+        </div>
+        <span class="land-card-cta">Open Chat &#8599;</span>
+      </a>
+
+    </section>
+
+    <section class="land-stack">
+      <p class="land-stack-label">Pipeline</p>
+      <ol class="land-stack-list">
+        <li><strong>Cohere embed-v4.0</strong> — 1024-dim query &amp; document embeddings</li>
+        <li><strong>Neon pgvector</strong> — vector similarity retrieval from a 22-row playbook corpus</li>
+        <li><strong>Cohere rerank-v3.5</strong> — cross-encoder re-ranking of top candidates</li>
+        <li><strong>Gemini 2.5 Flash</strong> — generation, issue spotting, missing-clause detection</li>
+        <li><strong>Gemini 2.5 Flash-Lite</strong> — PII anonymization for uploaded documents</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="land-footer">
+    <p>Portfolio demonstration — not legal advice. Do not enter confidential client information.</p>
+  </footer>
+
+</body>
+</html>
