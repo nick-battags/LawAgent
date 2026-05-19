@@ -1,198 +1,159 @@
 # LawAgent
 
-Local M&A due-diligence agent scaffold using Ollama + LangChain + LangGraph + Chroma.
+**An M&A drafting and review demo built on Corrective RAG, Cohere retrieval, and Vertex Gemini.**
 
-This repo supports a structured Westlaw/Practical Law corpus workflow: recursive ingestion, legal-aware chunking, and metadata-based retrieval filters.
+Generate a contract from a prompt, revise your own draft, or run a redline review against a 12-category playbook — all in one workspace, with inline track changes and downloadable Word artifacts.
 
-## What is included
+- **Live demo:** [lawagent.nickvbattaglia.com](https://lawagent.nickvbattaglia.com)
+- **Portfolio + case study:** [nickvbattaglia.com/projects/lawagent](https://nickvbattaglia.com/projects/lawagent)
+- **Two surfaces:** the [Drafting & Review Hub](https://lawagent.nickvbattaglia.com/hub) and the [chat-with-corpus](https://lawagent.nickvbattaglia.com/chat) interface
 
-- `scripts/1_ingest_ma.py`  
-  Ingests `PDF`, `DOCX`, `TXT`, and `MD` files recursively from `data/`, adds metadata, performs format-aware cleanup, chunks by legal structure, and writes vectors to `chroma_db/`.
-- `scripts/2_agent_ma.py`  
-  Runs a CRAG-like LangGraph flow (`retrieve -> grade -> rewrite? -> generate`) with optional metadata filters.
-- `scripts/3_eval_ma.py`  
-  Scores answer faithfulness against provided excerpts.
-- `scripts/4_batch_test_ma.py`  
-  Runs a query suite and writes JSON regression-style results.
-- `training_docs_inbox/`  
-  Drop-zone for raw incoming documents before sorting into `data/`.
-- `tests/ma_queries.json`  
-  Starter batch query set.
-- `tests/westlaw_metadata.sample.json`  
-  Example metadata override file.
+> Educational demo by a JD/MBA candidate. **Not a lawyer, not legal advice, no attorney-client privilege.** See [/legal](https://lawagent.nickvbattaglia.com/legal).
 
-## 1) Local setup (Windows PowerShell)
+---
 
-```powershell
-Set-Location "C:\Users\nickv\Documents\GitHub\LawAgent"
+## What it does
+
+**Drafting & Review Hub** (`/hub`) — three intake modes that converge on the same editing interface:
+- **Generate** — draft a contract from a prompt + posture (buy / sell / neutral)
+- **Revise** — upload a draft + a revision prompt, get a marked-up version
+- **Review** — upload a draft, get spotted issues without unsolicited rewrites
+
+Each session produces four downloadable artifacts: `redline.docx` (native `<w:ins>`/`<w:del>` track changes), `clean.docx` (accepted changes baked in), `memo.docx` (issues + rationale + decisions log), and `register.json` (structured change records). Per-change accept / reject / edit controls in the side panel. Anchored chat that references the specific clause being discussed.
+
+**Chat with the corpus** (`/chat`) — a NotebookLM-style interface for asking conversational questions about M&A drafting patterns. Streamed answers grounded in:
+- A curated 22-chunk playbook across 12 categories (assignment, indemnification, MAC, R&W, governing law, dispute resolution, termination, IP ownership, payment terms, liability cap, confidentiality, non-solicit)
+- The full Contract Understanding Atticus Dataset (CUAD — ~13K clause-level annotations from 510 contracts)
+- The Merger Agreement Understanding Dataset (MAUD — 153 M&A agreements with question-level annotations)
+
+Drop a document into the sidebar to ground the conversation in your own materials (per-session, 24-hour TTL, anonymized writes only).
+
+---
+
+## Architecture
+
+```mermaid
+graph LR
+  U[User query / draft / prompt] --> AN[Flash-Lite<br/>Anonymizer]
+  AN -->|anonymized text| E[Cohere Embed v4<br/>1024-d]
+  E -->|query vector| PG[(Neon pgvector<br/>~14,500 corpus chunks)]
+  PG -->|top-12 candidates| RR[Cohere Rerank 3.5]
+  RR -->|reranked top-k| G[Vertex Gemini 2.5 Flash<br/>issue spotter + drafter]
+  G --> H[Editing Hub<br/>per-change controls]
+  H --> B[Bake step]
+  B --> R[redline.docx]
+  B --> C[clean.docx]
+  B --> M[memo.docx]
+  B --> J[register.json]
+  H -.->|anonymized<br/>summary| SM[(Supermemory<br/>per-session, 24h TTL)]
+```
+
+The retrieval path is Corrective RAG: candidates from pgvector → reranker → optional Flash-Lite grader on borderline scores → Gemini Flash generator. The anonymizer runs first on every input so PII never reaches the LLM. The bake step writes anonymized summaries to Supermemory only after a post-hoc PII firewall re-check.
+
+Full data-flow guarantees: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (planned).
+
+---
+
+## Tech stack
+
+Flask · Vertex AI Gemini 2.5 Flash + Flash-Lite · Cohere Embed v4 + Rerank 3.5 · Neon serverless Postgres with pgvector · Supermemory · python-docx + docx-revisions · Cloud Run · Cloudflare DNS + Pages · Astro 4 (portfolio).
+
+| Concern | Choice | Why |
+|---|---|---|
+| Retrieval | Cohere Embed v4 + Rerank 3.5 over Neon pgvector | Best-in-class for legal text; rerank makes a Flash-Lite escalation grader unnecessary in steady state |
+| Generator | Vertex Gemini 2.5 Flash | Long context, fast, cheap, no training on our data |
+| Anonymizer | Vertex Gemini 2.5 Flash-Lite | 60–75% cheaper than Flash; per-session two-way pseudonym map in process memory only |
+| Database | Neon (Free tier) | Serverless Postgres, scales to zero, pgvector support, $0/mo at portfolio traffic |
+| Session memory | Supermemory (Free tier) | Per-session container tags, anonymized writes only, 24h TTL via client-side sweep |
+| Deploy | Cloud Run + Cloudflare Pages | Both scale to zero; combined steady-state cost ~$3–8/mo |
+
+Realistic cost: **~$3–8/month at portfolio traffic** (50 analyses/day), with hard guards in place (kill switch wired to a $50 Cloud Billing alert, per-IP rate limit at 20/hr, daily token cap at 50K/IP).
+
+---
+
+## Local development
+
+The repo supports a fully offline path (Ollama + ChromaDB) for local dev that mirrors the cloud pipeline at the API level.
+
+```bash
+# Clone and enter the repo
+git clone https://github.com/nick-battags/LawAgent.git
+cd LawAgent
+
+# Python env
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
 
-If PowerShell blocks activation:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-## 2) Pull local Ollama models
-
-```powershell
-ollama pull qwen2.5:7b
+# Pull local Ollama models (alternative to Vertex for offline dev)
+ollama pull llama3.1:8b
 ollama pull nomic-embed-text
-ollama list
+
+# Run with the local stack
+LLM_PROVIDER=ollama VECTOR_BACKEND=chromadb DEMO_MODE=false python app.py
+# → http://localhost:5000/hub
 ```
 
-## 3) Organize incoming documents
+To exercise the cloud stack locally instead, set the env vars per `deployment/.env.vps.example` and configure ADC for Vertex (`gcloud auth application-default login`).
 
-1. Drop new raw files in `training_docs_inbox/`.
-2. Sort selected files into `data/` using a structure like:
+---
 
-```text
-data/
-  westlaw/
-    agreements/
-    practice_notes/
-    clauses/
-    checklists/
+## Production deployment
+
+Single command from the repo root:
+
+```bash
+scripts/deploy.sh
 ```
 
-3. Name files descriptively, for example:
-- `spa_delaware_2023.pdf`
-- `due_diligence_checklist.docx`
-- `change_of_control_clause.docx`
+This wraps `gcloud builds submit` + `gcloud run services update` with the full env + secrets map per the [Phase 1 GCP setup](https://github.com/nick-battags/LawAgent/blob/main/docs/RUNBOOK.md) (planned doc). The script preserves all environment variables and Secret Manager bindings, so partial env updates don't drop secrets.
 
-## 4) Optional metadata overrides
+Required infrastructure (one-time):
+- GCP project with Vertex AI, Cloud Run, Cloud Build, Secret Manager enabled
+- Neon Postgres project with `pgvector` extension
+- Cohere account with a production API key
+- Supermemory account
+- Cloudflare account managing the apex domain DNS
+- Cloud Run service account with `roles/aiplatform.user`, `roles/secretmanager.secretAccessor`, `roles/storage.objectAdmin` (scoped to the demo bucket)
 
-If a filename/folder does not capture enough detail, add manual metadata overrides.
+---
 
-Example file: `tests/westlaw_metadata.sample.json`
+## Repository layout
 
-Run ingestion with overrides:
-
-```powershell
-python scripts/1_ingest_ma.py --metadata-json .\tests\westlaw_metadata.sample.json
+```
+LawAgent/
+├── app.py                      — Flask routes (Hub + chat + landing + APIs)
+├── scripts/
+│   ├── hub_pipeline.py         — Three-mode Hub pipeline (generate / revise / review)
+│   ├── hub_export.py           — Four-artifact bake (redline / clean / memo / register)
+│   ├── llm_provider.py         — VertexProvider (Cohere + Gemini) + OllamaProvider
+│   ├── pgvector_store.py       — Cohere-embedded pgvector retrieval
+│   ├── supermemory_store.py    — Per-session Supermemory writes
+│   ├── anonymizer.py           — Flash-Lite pseudonymization with 24h TTL map
+│   ├── pii_firewall.py         — Regex-based PII gate (pre-LLM + post-anonymizer)
+│   ├── context_loader.py       — Per-session document upload (NotebookLM-style)
+│   ├── corpus/
+│   │   ├── seed_playbook.py    — 22 curated playbook chunks
+│   │   └── ingest_datasets.py  — CUAD + MAUD bulk ingest into pgvector
+│   └── migrations/             — Postgres schema (vector(1024) for Cohere v4)
+├── templates/                  — Jinja2 templates for / /hub /chat /review /legal
+├── static/                     — CSS (cream + burgundy palette) + JS (hub.js, chat.js)
+├── prompts/                    — Versioned LLM prompts (generator, grader, rewriter)
+├── tests/                      — pytest suite
+├── deployment/                 — Dockerfile, gunicorn config, env templates
+└── docs/                       — Architecture, runbook, costs, emergency (planned)
 ```
 
-## 5) Ingest into Chroma
+---
 
-Default:
+## License
 
-```powershell
-python scripts/1_ingest_ma.py
-```
+MIT for the code in this repository. Sample fixtures and the curated playbook (`scripts/corpus/seed_playbook.py`) are original work distilled from publicly available M&A practice guides; the CUAD and MAUD datasets are CC BY 4.0 (Hendrycks et al. 2021 and Wang et al. 2023 respectively).
 
-Notes:
-- PDF extraction prefers layout-aware parsing and merges short adjacent pages for better clause continuity.
-- DOCX extraction preserves heading/list cues and converts tables into markdown-style text blocks.
+---
 
-Chunking tuning:
+## Disclaimer
 
-```powershell
-python scripts/1_ingest_ma.py --chunk-size 1800 --chunk-overlap 180 --collection ma_test
-```
+LawAgent is a portfolio demonstration tool built by a JD/MBA candidate for educational research on M&A contract drafting. It does **not** provide legal advice, does **not** establish an attorney-client relationship, and is **not** a substitute for counsel. Output should be verified by a licensed attorney before use. See [/legal](https://lawagent.nickvbattaglia.com/legal) for the full notice.
 
-PDF merge tuning:
-
-```powershell
-python scripts/1_ingest_ma.py --pdf-merge-min-chars 1200
-```
-
-Keep existing vector DB instead of reset:
-
-```powershell
-python scripts/1_ingest_ma.py --no-reset
-```
-
-## 6) Run the CRAG agent
-
-Basic query:
-
-```powershell
-python scripts/2_agent_ma.py --query "What are the change of control provisions in the supply agreement?"
-```
-
-With metadata filters:
-
-```powershell
-python scripts/2_agent_ma.py `
-  --query "What indemnification cap applies?" `
-  --filter-source "Westlaw Practical Law" `
-  --filter-document-type "Share Purchase Agreement" `
-  --filter-jurisdiction "Delaware"
-```
-
-Save full run output:
-
-```powershell
-python scripts/2_agent_ma.py --query "What are assignment restrictions?" --json-output .\outputs\single_run.json
-```
-
-## 7) Run answer faithfulness evaluation
-
-```powershell
-python scripts/3_eval_ma.py
-```
-
-Custom input:
-
-```powershell
-python scripts/3_eval_ma.py `
-  --query "What is the indemnification cap?" `
-  --context "Section 5. Indemnification. The Seller shall indemnify the Buyer for losses up to $10 million." `
-  --answer "The indemnification cap is $10 million."
-```
-
-## 8) Batch test multiple diligence questions
-
-```powershell
-python scripts/4_batch_test_ma.py
-```
-
-Custom run with filters:
-
-```powershell
-python scripts/4_batch_test_ma.py `
-  --queries-file .\tests\ma_queries.json `
-  --filter-source "Westlaw Practical Law" `
-  --filter-practice-area "M&A" `
-  --output-file .\outputs\batch_westlaw.json
-```
-
-## 9) Switch from placeholder to real deal data
-
-1. Remove placeholder files from `data/`.
-2. Keep old data isolated by switching collection name, for example `--collection ma_deal_abc`.
-3. Re-run ingestion.
-4. Run query/batch scripts with the new collection.
-
-## Troubleshooting
-
-- If ingestion loads no files, confirm documents are under `data/` and extensions are `pdf/docx/txt/md`.
-- If agent script says vector store is missing, run ingestion first.
-- If Ollama connection fails, confirm Ollama is running and models are pulled.
-- If answers are weak, tune:
-  - chunking (`--chunk-size`, `--chunk-overlap`)
-  - retrieval depth (`--k`)
-  - rewrite retries (`--max-rewrites`)
-  - metadata filters (`--filter-*`)
-
-## Deployment (Off Replit)
-
-This repo now includes a full non-Replit deployment path:
-
-- [Hybrid VPS Guide](deployment/HYBRID_VPS_GUIDE.md)
-- [Hybrid Compose File](deployment/docker-compose.hybrid.yml)
-- [VPS Env Template](deployment/.env.vps.example)
-
-Recommended production architecture:
-
-1. Cheap VPS hosts `LawAgent + PostgreSQL + TLS`.
-2. Home always-on machine hosts Ollama (`llama3.1:8b`, `command-r:7b`, `nomic-embed-text`).
-3. App uses `LAWAGENT_RUNTIME_MODE=auto` so deterministic fallback remains available when Ollama is unreachable.
-4. Vector sync is automatic after corpus-changing operations (uploads, deposit ingest, MAUD/CUAD ingestion, EDGAR ingest, tag updates, deletes).
-5. Admin PIN-protected runtime control lets you globally force `auto`, `llm`, or `deterministic` mode from `/admin`.
-6. Optional endpoint failover is available with `OLLAMA_BASE_URLS=primary,secondary`.
+**Built by [Nick Battaglia](https://nickvbattaglia.com)** — Indiana University Maurer School of Law (JD) + Kelley School of Business (MBA), 2027.
