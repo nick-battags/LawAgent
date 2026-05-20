@@ -100,6 +100,28 @@ nav {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text);
+  text-decoration: none;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.nav-back {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-decoration: none;
+  letter-spacing: -0.005em;
+  transition: color var(--transition);
+  padding-right: 4px;
+  border-right: 1px solid var(--border);
+  padding-right: 18px;
+}
+
+.nav-back:hover {
+  color: var(--accent);
 }
 
 .pill {

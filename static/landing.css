@@ -44,7 +44,26 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   height: 56px;
+}
+
+.land-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.land-back {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.15s;
+  letter-spacing: -0.005em;
+}
+
+.land-back:hover {
+  color: var(--accent);
 }
 
 .land-brand {
@@ -89,12 +108,13 @@ body {
 }
 
 .land-h1 {
-  font-size: 2.5rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: var(--font-serif);
+  font-size: 2.75rem;
+  font-weight: 600;
+  letter-spacing: -0.022em;
   margin: 0 0 1rem;
-  line-height: 1.2;
-  color: #fff;
+  line-height: 1.15;
+  color: var(--text);
 }
 
 .land-lede {
@@ -150,10 +170,12 @@ body {
 }
 
 .land-card-title {
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
   margin: 0 0 0.65rem;
-  color: #fff;
+  color: var(--text);
 }
 
 .land-card-desc {
@@ -191,40 +213,63 @@ body {
 }
 
 .land-card:hover .land-card-cta {
-  color: #fff;
+  color: var(--accent-strong);
 }
 
 /* ── Pipeline stack ──────────────────────────────────────────────────── */
 
 .land-stack {
   border-top: 1px solid var(--border);
-  padding-top: 2rem;
+  padding-top: 2.5rem;
+  margin-top: 1rem;
 }
 
 .land-stack-label {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--text-muted);
-  margin: 0 0 0.85rem;
+  color: var(--accent);
+  margin: 0 0 0.4rem;
 }
 
-.land-stack-list {
-  margin: 0;
-  padding-left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
-.land-stack-list li {
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.land-stack-list li strong {
+.land-stack-h2 {
+  font-family: var(--font-serif);
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.018em;
   color: var(--text);
+  margin: 0 0 1.5rem;
+}
+
+.land-diagram {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.4rem 1.2rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.land-diagram pre {
+  margin: 0;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre;
+}
+
+.land-diagram pre strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.land-stack-caption {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 1rem 0 0;
+  line-height: 1.6;
+  max-width: 640px;
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────── */

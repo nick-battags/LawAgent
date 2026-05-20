@@ -3,14 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LawAgent | M&A Intelligence Platform</title>
+  <title>Argus | M&A Drafting &amp; Review</title>
   <link rel="stylesheet" href="/static/landing.css">
 </head>
 <body>
 
   <header class="land-header">
     <nav class="land-nav">
-      <span class="land-brand">LawAgent</span>
+      <div class="land-nav-left">
+        <a href="https://nickvbattaglia.com" class="land-back" rel="noopener">&larr; Nick Battaglia</a>
+        <span class="land-brand">Argus</span>
+      </div>
       <span class="land-pill">Portfolio Demo</span>
     </nav>
   </header>
@@ -18,24 +21,25 @@
   <main class="land-main">
 
     <section class="land-hero">
-      <p class="land-eyebrow">M&amp;A intelligence platform</p>
-      <h1 class="land-h1">Two AI tools for M&amp;A legal work</h1>
+      <p class="land-eyebrow">M&amp;A drafting &amp; review</p>
+      <h1 class="land-h1">Two tools for M&amp;A legal work</h1>
       <p class="land-lede">
-        Generate and redline contracts or issue-spot an existing agreement —
-        powered by Cohere embeddings, Neon pgvector, and Gemini 2.5.
+        Generate and redline contracts in a track-changes workspace, or chat with
+        a 14,500-chunk M&amp;A corpus &mdash; powered by Cohere embeddings, Neon
+        pgvector, and Vertex Gemini 2.5 Flash on a corrective RAG pipeline.
       </p>
     </section>
 
     <section class="land-cards">
 
-      <a href="/hub" class="land-card" aria-label="Open Drafting & Review Hub">
+      <a href="/hub" class="land-card" aria-label="Open Drafting and Review Hub">
         <div class="land-card-icon" aria-hidden="true">&#9636;</div>
         <div class="land-card-body">
           <h2 class="land-card-title">Drafting &amp; Review Hub</h2>
           <p class="land-card-desc">
             Generate a first draft from a prompt, revise your own draft, or review
             an existing agreement. Inline redlines, missing-clause detection, and
-            a clause Q&amp;A panel in one editing workspace.
+            an anchored clause Q&amp;A panel in one editing workspace.
           </p>
           <ul class="land-card-tags">
             <li>Generate from prompt</li>
@@ -47,20 +51,20 @@
         <span class="land-card-cta">Open Hub &#8599;</span>
       </a>
 
-      <a href="/chat" class="land-card" aria-label="Open M&A Issue Spotter">
+      <a href="/chat" class="land-card" aria-label="Open Ask the Corpus">
         <div class="land-card-icon" aria-hidden="true">&#9635;</div>
         <div class="land-card-body">
-          <h2 class="land-card-title">M&amp;A Issue Spotter</h2>
+          <h2 class="land-card-title">Ask the Corpus</h2>
           <p class="land-card-desc">
-            Paste any merger agreement, SPA, APA, or LOI. The corrective RAG
-            pipeline retrieves playbook guidance, grades it for relevance, and
-            surfaces specific clause-level issues with source citations.
+            NotebookLM-style chat grounded in a curated 22-category M&amp;A playbook,
+            ~7,000 CUAD commercial-contract spans, and ~4,000 MAUD merger-agreement
+            spans. Streamed answers with source citations and a 24-hour session memory.
           </p>
           <ul class="land-card-tags">
-            <li>CRAG pipeline</li>
+            <li>Streaming answers</li>
             <li>Source citations</li>
-            <li>Template Q&amp;A</li>
             <li>Session context</li>
+            <li>Upload your own doc</li>
           </ul>
         </div>
         <span class="land-card-cta">Open Chat &#8599;</span>
@@ -69,20 +73,48 @@
     </section>
 
     <section class="land-stack">
-      <p class="land-stack-label">Pipeline</p>
-      <ol class="land-stack-list">
-        <li><strong>Cohere embed-v4.0</strong> — 1024-dim query &amp; document embeddings</li>
-        <li><strong>Neon pgvector</strong> — vector similarity retrieval from a 22-row playbook corpus</li>
-        <li><strong>Cohere rerank-v3.5</strong> — cross-encoder re-ranking of top candidates</li>
-        <li><strong>Gemini 2.5 Flash</strong> — generation, issue spotting, missing-clause detection</li>
-        <li><strong>Gemini 2.5 Flash-Lite</strong> — PII anonymization for uploaded documents</li>
-      </ol>
+      <p class="land-stack-label">Architecture</p>
+      <h2 class="land-stack-h2">Corrective RAG pipeline</h2>
+      <div class="land-diagram" aria-label="Pipeline diagram">
+<pre>
+User query / draft / prompt
+          &#9474;
+          &#9660;
+  <strong>Flash-Lite Anonymizer</strong>           &larr; always-on, per-session two-way pseudonym map
+          &#9474;  anonymized text
+          &#9660;
+  <strong>Cohere Embed v4</strong>                  &larr; 1024-dim query vector
+          &#9474;
+          &#9660;
+  <strong>Neon pgvector</strong>                    &larr; top-12 candidates from ~11,266 corpus chunks
+          &#9474;
+          &#9660;
+  <strong>Cohere Rerank 3.5</strong>                &larr; cross-encoder relevance scoring
+          &#9474;
+          &#9660;
+  <strong>Vertex Gemini 2.5 Flash</strong>          &larr; issue spotter + drafter, structured JSON output
+          &#9474;
+          &#9660;
+  <strong>Editing Hub</strong>                      &larr; per-change accept / reject / rewrite
+          &#9474;
+          &#9660;
+  redline.docx &middot; clean.docx &middot; memo.docx &middot; register.json
+          &#9474;
+          &#9660;
+  <strong>Supermemory</strong>                      &larr; anonymized session summary, 24h TTL
+</pre>
+      </div>
+      <p class="land-stack-caption">
+        PII is anonymized client-side before retrieval; LLMs only see pseudonymized
+        text. The session memory holds only post-anonymization summaries, gated by
+        a second regex PII firewall on write.
+      </p>
     </section>
 
   </main>
 
   <footer class="land-footer">
-    <p>Portfolio demonstration — not legal advice. Do not enter confidential client information.</p>
+    <p>Portfolio demonstration &mdash; not legal advice. Do not enter confidential client information.</p>
   </footer>
 
 </body>
