@@ -1,12 +1,18 @@
-# LawAgent
+# Argus
 
 **An M&A drafting and review demo built on Corrective RAG, Cohere retrieval, and Vertex Gemini.**
 
-Generate a contract from a prompt, revise your own draft, or run a redline review against a 12-category playbook — all in one workspace, with inline track changes and downloadable Word artifacts.
+> The product is called **Argus**; the GitHub repo retains the original project name **LawAgent** to preserve clone URLs and inbound links. Both refer to the same codebase.
+
+Generate a contract from a prompt, revise your own draft, or run a redline review against an M&A playbook grounded in the CUAD and MAUD academic datasets — all in one workspace, with inline track changes and downloadable Word artifacts.
 
 - **Live demo:** [lawagent.nickvbattaglia.com](https://lawagent.nickvbattaglia.com)
 - **Portfolio + case study:** [nickvbattaglia.com/projects/lawagent](https://nickvbattaglia.com/projects/lawagent)
-- **Two surfaces:** the [Drafting & Review Hub](https://lawagent.nickvbattaglia.com/hub) and the [chat-with-corpus](https://lawagent.nickvbattaglia.com/chat) interface
+- **Two surfaces:** the [Drafting & Review Hub](https://lawagent.nickvbattaglia.com/hub) and the [Ask the Corpus](https://lawagent.nickvbattaglia.com/chat) chat interface
+
+[![Version](https://img.shields.io/badge/version-v1.1-722F37)](https://github.com/nick-battags/LawAgent/releases/tag/v1.1)
+[![License](https://img.shields.io/badge/license-MIT-722F37)](#license)
+[![Built with](https://img.shields.io/badge/stack-Flask%20%C2%B7%20Vertex%20Gemini%20%C2%B7%20Cohere%20%C2%B7%20Neon%20pgvector-722F37)](#tech-stack)
 
 > Educational demo by a JD/MBA candidate. **Not a lawyer, not legal advice, no attorney-client privilege.** See [/legal](https://lawagent.nickvbattaglia.com/legal).
 
@@ -21,10 +27,10 @@ Generate a contract from a prompt, revise your own draft, or run a redline revie
 
 Each session produces four downloadable artifacts: `redline.docx` (native `<w:ins>`/`<w:del>` track changes), `clean.docx` (accepted changes baked in), `memo.docx` (issues + rationale + decisions log), and `register.json` (structured change records). Per-change accept / reject / edit controls in the side panel. Anchored chat that references the specific clause being discussed.
 
-**Chat with the corpus** (`/chat`) — a NotebookLM-style interface for asking conversational questions about M&A drafting patterns. Streamed answers grounded in:
+**Ask the Corpus** (`/chat`) — a NotebookLM-style interface for asking conversational questions about M&A drafting patterns. Streamed answers grounded in **11,266 corpus chunks** indexed in Neon pgvector:
 - A curated 22-chunk playbook across 12 categories (assignment, indemnification, MAC, R&W, governing law, dispute resolution, termination, IP ownership, payment terms, liability cap, confidentiality, non-solicit)
-- The full Contract Understanding Atticus Dataset (CUAD — ~13K clause-level annotations from 510 contracts)
-- The Merger Agreement Understanding Dataset (MAUD — 153 M&A agreements with question-level annotations)
+- ~7,067 spans from the Contract Understanding Atticus Dataset (CUAD — clause-level annotations across 250+ contracts)
+- ~4,177 spans from the Merger Agreement Understanding Dataset (MAUD — question-level annotations across ~150 M&A agreements)
 
 Drop a document into the sidebar to ground the conversation in your own materials (per-session, 24-hour TTL, anonymized writes only).
 
@@ -36,7 +42,7 @@ Drop a document into the sidebar to ground the conversation in your own material
 graph LR
   U[User query / draft / prompt] --> AN[Flash-Lite<br/>Anonymizer]
   AN -->|anonymized text| E[Cohere Embed v4<br/>1024-d]
-  E -->|query vector| PG[(Neon pgvector<br/>~14,500 corpus chunks)]
+  E -->|query vector| PG[(Neon pgvector<br/>11,266 corpus chunks)]
   PG -->|top-12 candidates| RR[Cohere Rerank 3.5]
   RR -->|reranked top-k| G[Vertex Gemini 2.5 Flash<br/>issue spotter + drafter]
   G --> H[Editing Hub<br/>per-change controls]
@@ -154,6 +160,6 @@ MIT for the code in this repository. Sample fixtures and the curated playbook (`
 
 ## Disclaimer
 
-LawAgent is a portfolio demonstration tool built by a JD/MBA candidate for educational research on M&A contract drafting. It does **not** provide legal advice, does **not** establish an attorney-client relationship, and is **not** a substitute for counsel. Output should be verified by a licensed attorney before use. See [/legal](https://lawagent.nickvbattaglia.com/legal) for the full notice.
+Argus is a portfolio demonstration tool built by a JD/MBA candidate for educational research on M&A contract drafting. It does **not** provide legal advice, does **not** establish an attorney-client relationship, and is **not** a substitute for counsel. Output should be verified by a licensed attorney before use. See [/legal](https://lawagent.nickvbattaglia.com/legal) for the full notice.
 
 **Built by [Nick Battaglia](https://nickvbattaglia.com)** — Indiana University Maurer School of Law (JD) + Kelley School of Business (MBA), 2027.

@@ -1063,7 +1063,7 @@ def v2_context_list():
         mem = get_session_memory(session_id)
         client = mem._get_client()
         response = client.search.execute(
-            q=" ",
+            q=".",
             container_tag=session_id,
             limit=50,
             filters={"AND": [{"key": "kind", "value": "context"}]},
@@ -1087,7 +1087,7 @@ def v2_context_list():
         return jsonify({"sources": deduped, "count": len(deduped)})
     except Exception as exc:
         logger.warning("context list failed for session %s: %s", session_id, exc)
-        return jsonify({"sources": [], "error": str(exc)}), 500
+        return jsonify({"sources": [], "count": 0})
 
 
 @app.delete("/api/v2/context/<doc_id>")
