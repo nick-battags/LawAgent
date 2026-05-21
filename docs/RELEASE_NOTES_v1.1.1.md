@@ -9,12 +9,18 @@ Latency, anonymizer parity, and Supermemory write-path patches uncovered during 
 
 ## Changes
 
-### 1. Cold-start eliminated (`min-instances=1`)
+### 1. Cold-start eliminated (`min-instances=1` + eager warmup)
 
-`scripts/deploy.sh` now sets `--min-instances=1` on every Cloud Run deploy. Prior behavior was scale-to-zero, which meant the first request after ~15 min idle paid a 0–3 sec cold-start penalty. With one warm instance always allocated, cold-start latency is eliminated for the first visitor of any time window.
+Two complementary changes to remove first-request latency:
+
+**a) `min-instances=1` on Cloud Run.** `scripts/deploy.sh` now sets `--min-instances=1 --max-instances=10` on every deploy. One container always stays warm; the instance is never evicted by scale-to-zero. Verified by curl timing: after 2+ min idle, requests still return in ~200ms.
+
+**b) Eager warmup at module import.** With `min-instances=1` alone, the first request to a *freshly-deployed revision* still paid ~10 sec of lazy initialization (Vertex AI client init, Neon pgvector connection pool + TLS handshake, Cohere client setup, anonymizer module load). The warmup hook in `app.py` (`_eager_warmup()`) now calls `get_llm()` and `get_demo_vector_store()` at module import time, before gunicorn opens its listening socket. Cloud Run's health check waits for the listener, so the new revision isn't promoted until warmup completes. The 10 sec moves from "first user request" to "deploy time" — only the operator sees it.
 
 - **Cost delta:** ~$3–7/mo additional Cloud Run compute (1 instance × low utilization × $0.000009/vCPU-sec)
-- **Latency delta:** ~−1,500ms p95 for any first-after-idle request (the recruiter who lands once and bounces)
+- **Latency delta:** ~−1,500ms p95 for any first-after-idle request; ~−10,000ms for the first request after a deploy
+- **Deploy time delta:** +~10 sec (warmup runs before container marked ready)
+- **Escape hatch:** `WARMUP_DISABLED=true` skips warmup (useful for local dev without Vertex creds)
 
 ### 2. Supermemory context-lookup skip for known-empty sessions
 

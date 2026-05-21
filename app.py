@@ -47,6 +47,44 @@ ADMIN_PIN = os.environ.get("ADMIN_PIN", "")
 UPLOAD_DIR = Path("training_docs_inbox/uploads")
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
+
+def _eager_warmup() -> None:
+    """Pre-initialize expensive clients at module import time.
+
+    Without this, the FIRST user request to any freshly-deployed Cloud Run
+    revision pays ~10s of lazy init cost (Vertex AI client + Neon pgvector
+    connection pool + TLS handshake + Cohere client + anonymizer module load).
+
+    Blocking imports here shift that cost into deploy time, before gunicorn
+    opens its listening socket. Cloud Run's health check waits for the
+    listener, so the new revision isn't promoted until warmup completes.
+    The 10s becomes the operator's problem, not the first user's.
+
+    Skipped when WARMUP_DISABLED=true (useful for local dev where Vertex
+    creds may be absent).
+    """
+    if os.environ.get("WARMUP_DISABLED", "false").lower() in ("true", "1", "yes"):
+        logger.info("Warmup: skipped (WARMUP_DISABLED=true)")
+        return
+    t0 = time.time()
+    try:
+        from scripts.llm_provider import get_llm
+        provider = get_llm()
+        logger.info("Warmup: llm_provider initialized (%.2fs)", time.time() - t0)
+    except Exception as exc:
+        logger.warning("Warmup: llm_provider init failed (continuing): %s", exc)
+    t1 = time.time()
+    try:
+        from scripts.vector_store import get_demo_vector_store
+        get_demo_vector_store()
+        logger.info("Warmup: vector_store initialized (%.2fs)", time.time() - t1)
+    except Exception as exc:
+        logger.warning("Warmup: vector_store init failed (continuing): %s", exc)
+    logger.info("Warmup: total %.2fs", time.time() - t0)
+
+
+_eager_warmup()
+
 _session_store: dict[str, list[dict[str, Any]]] = {}
 _session_lock = threading.Lock()
 MAX_SESSIONS = 50
