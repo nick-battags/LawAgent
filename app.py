@@ -1139,23 +1139,14 @@ def v2_chat():
             # v1.1.1: Persist Q&A to Supermemory (kind=chat_exchange, 24h TTL).
             # Writes the ANONYMIZED version (anon_query + raw_answer) for parity
             # with the Hub's anonymized-only memory store invariant.
-            logger.info(
-                "v2_chat write-gate: session_id=%r isinstance(provider, VertexProvider)=%s",
-                session_id, isinstance(provider, VertexProvider),
-            )
             if session_id and isinstance(provider, VertexProvider):
-                logger.info("v2_chat: entering chat_exchange write block for session %s", session_id)
                 try:
                     from scripts.session_memory import get_session_memory
                     mem = get_session_memory(session_id)
                     write_content = f"Q: {anon_query}\nA: {raw_answer}"
                     if len(write_content) > 2000:
                         write_content = write_content[:1997] + "..."
-                    logger.info(
-                        "v2_chat: calling mem.write (content_len=%d, kind=chat_exchange)",
-                        len(write_content),
-                    )
-                    result_id = mem.write(
+                    mem.write(
                         content=write_content,
                         kind="chat_exchange",
                         metadata={
@@ -1164,11 +1155,8 @@ def v2_chat():
                             "citation_count": len(citations),
                         },
                     )
-                    logger.info("v2_chat: mem.write returned id=%r", result_id)
                 except Exception as write_exc:
                     logger.warning("v2_chat chat_exchange write failed: %s", write_exc)
-            else:
-                logger.info("v2_chat: SKIPPING write — gate condition false")
 
         except Exception as exc:
             logger.error("v2_chat error: %s", exc)

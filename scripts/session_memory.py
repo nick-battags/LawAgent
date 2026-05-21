@@ -18,14 +18,27 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# PII heuristic tokens. Word boundaries (\b) prevent false positives like
+# "ein" matching "being/their/certain", "iban" matching "Caribbean", "dob"
+# matching "doberman", "license" matching "licensee". "@" stays as substring
+# match because @ isn't a word character (regex \b wouldn't bracket it).
 _PII_TOKENS = (
     "@", "ssn", "ein", "passport", "license", "iban", "routing",
     "account number", "credit card", "date of birth", "dob",
+)
+_PII_REGEX = re.compile(
+    r"|".join(
+        # "@" stays as raw character match; everything else gets word boundaries
+        re.escape(t) if t == "@" else rf"\b{re.escape(t)}\b"
+        for t in _PII_TOKENS
+    ),
+    re.IGNORECASE,
 )
 
 
@@ -69,14 +82,15 @@ class SessionMemory:
         return True
 
     def _passes_pii_heuristic(self, content: str) -> bool:
-        lower = content.lower()
-        for token in _PII_TOKENS:
-            if token in lower:
-                logger.warning(
-                    "SessionMemory write blocked for session %s: PII token '%s' detected",
-                    self.session_id, token,
-                )
-                return False
+        # Word-boundary regex catches actual PII tokens without false positives
+        # in common English words (e.g., "ein" used to match "being/their").
+        match = _PII_REGEX.search(content)
+        if match:
+            logger.warning(
+                "SessionMemory write blocked for session %s: PII token '%s' detected",
+                self.session_id, match.group(0),
+            )
+            return False
         return True
 
     def _passes_firewall(self, content: str) -> bool:

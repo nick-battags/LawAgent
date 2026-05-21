@@ -56,6 +56,14 @@ The standalone `/chat` endpoint was reading session context from Supermemory but
 
 Write is wrapped in try/except so a Supermemory outage cannot break the chat response.
 
+### 5. PII heuristic false-positive fix in `session_memory._passes_pii_heuristic`
+
+The pre-write PII safety net used naive substring matching on a token list including `"ein"`, `"iban"`, `"dob"`, `"routing"`, `"license"`. Every chat answer containing common English words like "being / their / certain / obtain" silently failed validation because `"ein"` was a substring. This blocked 100% of `chat_exchange` writes from `v2_chat`.
+
+Replaced substring search with a compiled regex using word boundaries (`\b`). `"@"` stays as substring (not a word character; `\b@\b` would never match). The heuristic now catches actual standalone tokens — `EIN: 12-3456789`, `SSN 123-45-6789`, `routing 021000021` — without false-positive blocking on benign English text.
+
+Caught during v1.1.1 post-deploy validation when `v2_chat` chat_exchange writes were silently failing. Affects all `kind` types written via `session_memory.write()` (`context`, `chat_exchange`, `review_summary`, `session_summary`).
+
 ---
 
 ## Net latency change for a typical first-visit chat
