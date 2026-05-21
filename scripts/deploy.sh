@@ -30,17 +30,21 @@ if $BUILD; then
   gcloud builds submit \
     --tag "${IMAGE}:$(git rev-parse --short HEAD)" \
     --project "$PROJECT_ID"
-  echo "==> Deploying new image…"
+  echo "==> Deploying new image (min-instances=1 to eliminate cold start)…"
   gcloud run deploy "$SERVICE" \
     --image "${IMAGE}:$(git rev-parse --short HEAD)" \
     --region "$REGION" \
-    --project "$PROJECT_ID"
+    --project "$PROJECT_ID" \
+    --min-instances=1 \
+    --max-instances=10
 fi
 
-echo "==> Applying full env + secrets map…"
+echo "==> Applying full env + secrets map (incl. min-instances=1)…"
 gcloud run services update "$SERVICE" \
   --region "$REGION" \
   --project "$PROJECT_ID" \
+  --min-instances=1 \
+  --max-instances=10 \
   --set-env-vars="DEMO_MODE=true,HUB_ENABLED=true,NODE_ENV=production,LLM_PROVIDER=vertex,VERTEX_LOCATION=${REGION},GCP_PROJECT=${PROJECT_ID},VECTOR_BACKEND=pgvector,SUPERMEMORY_CORPUS_TAG=lawagent-corpus,HUB_PROMPT_MAX_CHARS=5000" \
   --set-secrets="DATABASE_URL=lawagent-db-url:latest,FLASK_SECRET_KEY=lawagent-flask-secret:latest,CONSENT_SECRET=lawagent-consent-secret:latest,SUPERMEMORY_API_KEY=lawagent-supermemory-key:latest,COHERE_API_KEY=lawagent-cohere-key:latest,SCHEDULER_SECRET=lawagent-scheduler-secret:latest"
 

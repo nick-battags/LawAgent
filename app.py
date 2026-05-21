@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import traceback
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -50,6 +51,43 @@ _session_store: dict[str, list[dict[str, Any]]] = {}
 _session_lock = threading.Lock()
 MAX_SESSIONS = 50
 MAX_SESSION_DOCS = 10
+
+# v1.1.1: Per-session "has uploaded context?" cache.
+# Maps session_id -> (checked_at_epoch, has_context_bool). TTL 300s.
+# Skips redundant Supermemory recall(kind=context) calls for sessions known
+# to have zero uploads (the recruiter-clicks-through-once case = 99% of traffic).
+# Updated by /api/v2/context/list, POST /api/v2/context, DELETE /api/v2/context/<id>.
+# Read by v2_chat.
+_SESSION_CONTEXT_CACHE: dict[str, tuple[float, bool]] = {}
+_SESSION_CONTEXT_CACHE_TTL_S = 300
+_session_context_cache_lock = threading.Lock()
+
+
+def _mark_session_context_state(session_id: str, has_context: bool) -> None:
+    """Record whether session_id has uploaded context documents."""
+    if not session_id:
+        return
+    with _session_context_cache_lock:
+        _SESSION_CONTEXT_CACHE[session_id] = (time.time(), has_context)
+
+
+def _session_might_have_context(session_id: str) -> bool:
+    """Return True unless we recently confirmed the session has zero context docs.
+
+    Safe default: True (do the lookup). Only returns False when cache entry
+    exists, is fresh (<300s old), and confirmed empty. This means at worst we
+    do one extra Supermemory call per 5 min for empty sessions.
+    """
+    if not session_id:
+        return False  # No session = nothing to look up
+    with _session_context_cache_lock:
+        entry = _SESSION_CONTEXT_CACHE.get(session_id)
+        if not entry:
+            return True  # Never checked; do the lookup to populate cache
+        checked_at, has_context = entry
+        if time.time() - checked_at > _SESSION_CONTEXT_CACHE_TTL_S:
+            return True  # Stale; refresh
+        return has_context  # Recently confirmed empty = skip; recently confirmed has data = lookup
 DEFAULT_EDGAR_END_DATE = date.today().isoformat()
 _vector_sync_lock = threading.RLock()
 _vector_sync_state: dict[str, Any] = {
@@ -976,18 +1014,34 @@ def v2_chat():
         try:
             from scripts.vector_store import get_demo_vector_store
             from scripts.llm_provider import get_llm, VertexProvider
+            from scripts.anonymizer import get_session_anonymizer
 
-            # Background corpus (pgvector)
+            # v1.1.1: Flash-Lite anonymizer on the standalone /chat surface
+            # (parity with Hub). Soft-fail returns text unchanged if Flash-Lite
+            # unavailable — see scripts/anonymizer.py lines 76-83.
+            anon = get_session_anonymizer(session_id) if session_id else None
+            try:
+                if anon:
+                    anon_query, _ = anon.anonymize(query)
+                else:
+                    anon_query = query
+            except Exception as anon_exc:
+                logger.warning("v2_chat anonymize failed (using raw): %s", anon_exc)
+                anon_query = query
+
+            # Background corpus (pgvector) — embedded query goes anonymized
             store = get_demo_vector_store()
-            corpus_chunks = store.query(query, top_k=6)
+            corpus_chunks = store.query(anon_query, top_k=6)
 
-            # Session-uploaded context (Supermemory kind=context)
+            # v1.1.1: Session-uploaded context (Supermemory kind=context)
+            # Skip the Supermemory call when this session is known to have no
+            # uploads (recruiter audience). Saves ~200-400ms per request.
             session_chunks: list[dict] = []
-            if session_id:
+            if session_id and _session_might_have_context(session_id):
                 try:
                     from scripts.session_memory import get_session_memory
                     mem = get_session_memory(session_id)
-                    raw = mem.recall(query=query, kind="context", limit=4)
+                    raw = mem.recall(query=anon_query, kind="context", limit=4)
                     session_chunks = [
                         {
                             "text": r.get("content", ""),
@@ -996,6 +1050,8 @@ def v2_chat():
                         }
                         for r in raw
                     ]
+                    # Refresh the cache: if recall returned nothing, mark session empty
+                    _mark_session_context_state(session_id, has_context=bool(session_chunks))
                 except Exception as exc:
                     logger.warning("Chat session context retrieval failed: %s", exc)
 
@@ -1016,17 +1072,23 @@ def v2_chat():
                 "You are an expert M&A legal analyst. Answer the following question "
                 "using ONLY the excerpts provided below. Cite sources as [1], [2], etc. "
                 "Be precise and concise (under 350 words).\n\n"
-                f"QUESTION: {query}\n\n"
+                f"QUESTION: {anon_query}\n\n"
                 f"EXCERPTS:\n{context}\n\n"
                 "Answer:"
             )
 
             provider = get_llm()
+            raw_answer = ""
+            display_answer = ""
             if not isinstance(provider, VertexProvider):
-                yield _sse({"token": "[Chat requires LLM_PROVIDER=vertex in production]"})
+                raw_answer = "[Chat requires LLM_PROVIDER=vertex in production]"
+                display_answer = raw_answer
+                yield _sse({"token": display_answer})
             else:
-                answer = provider._generate(prompt, model=provider.generator_model, temperature=0.2)
-                words = answer.split(" ")
+                raw_answer = provider._generate(prompt, model=provider.generator_model, temperature=0.2)
+                # Rehydrate placeholders before streaming to the user
+                display_answer = anon.rehydrate(raw_answer) if anon else raw_answer
+                words = display_answer.split(" ")
                 for i, word in enumerate(words):
                     yield _sse({"token": word + (" " if i < len(words) - 1 else "")})
 
@@ -1035,6 +1097,28 @@ def v2_chat():
                 for i, c in enumerate(all_chunks[:8])
             ]
             yield _sse({"citations": citations})
+
+            # v1.1.1: Persist Q&A to Supermemory (kind=chat_exchange, 24h TTL).
+            # Writes the ANONYMIZED version (anon_query + raw_answer) for parity
+            # with the Hub's anonymized-only memory store invariant.
+            if session_id and isinstance(provider, VertexProvider):
+                try:
+                    from scripts.session_memory import get_session_memory
+                    mem = get_session_memory(session_id)
+                    write_content = f"Q: {anon_query}\nA: {raw_answer}"
+                    if len(write_content) > 2000:
+                        write_content = write_content[:1997] + "..."
+                    mem.write(
+                        content=write_content,
+                        kind="chat_exchange",
+                        metadata={
+                            "anonymized": True,
+                            "surface": "ask_the_corpus",
+                            "citation_count": len(citations),
+                        },
+                    )
+                except Exception as write_exc:
+                    logger.warning("v2_chat chat_exchange write failed: %s", write_exc)
 
         except Exception as exc:
             logger.error("v2_chat error: %s", exc)
@@ -1084,6 +1168,9 @@ def v2_context_list():
             if key not in seen:
                 seen.add(key)
                 deduped.append(s)
+        # v1.1.1: Update the per-session context cache so v2_chat can skip
+        # the Supermemory recall on subsequent requests if this session has none.
+        _mark_session_context_state(session_id, has_context=bool(deduped))
         return jsonify({"sources": deduped, "count": len(deduped)})
     except Exception as exc:
         logger.warning("context list failed for session %s: %s", session_id, exc)
@@ -1101,6 +1188,10 @@ def v2_context_delete(doc_id: str):
         mem = get_session_memory(session_id)
         client = mem._get_client()
         client.memories.forget(container_tag=session_id, id=doc_id)
+        # v1.1.1: Invalidate the cache entry — next chat request will re-check
+        # so we don't keep querying when this was the user's last doc, or skip
+        # querying if they re-uploaded.
+        _mark_session_context_state(session_id, has_context=False)
         return jsonify({"deleted": doc_id})
     except Exception as exc:
         logger.warning("context delete failed for doc %s session %s: %s", doc_id, session_id, exc)
@@ -1386,6 +1477,10 @@ def hub_context_attach():
     from scripts.context_loader import attach_context
     result = attach_context(session_id, content=content, file_bytes=file_bytes, filename=filename)
     code = 200 if result.get("status") == "ok" else 400
+    # v1.1.1: Mark cache so v2_chat will perform the Supermemory recall on
+    # subsequent requests (since this session now has uploaded context).
+    if code == 200:
+        _mark_session_context_state(session_id, has_context=True)
     return jsonify(result), code
 
 
