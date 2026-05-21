@@ -56,7 +56,23 @@ The standalone `/chat` endpoint was reading session context from Supermemory but
 
 Write is wrapped in try/except so a Supermemory outage cannot break the chat response.
 
-### 5. PII heuristic false-positive fix in `session_memory._passes_pii_heuristic`
+### 5. Supermemory SDK v3.x migration
+
+The deployed `supermemory` Python SDK at v3.42.0 had renamed the write API. The old `client.memories.add(...)` no longer exists — every write call was failing silently before this fix with `'MemoriesResource' object has no attribute 'add'`.
+
+Migration done in three call sites:
+- `scripts/session_memory.py::write_summary()` (line 150)
+- `scripts/session_memory.py::write()` (line 199)
+- `scripts/supermemory_store.py::add()` (line 99)
+
+Changes per call site:
+- `client.memories.add(...)` → `client.add(...)` (top-level method)
+- Removed `forget_after=f"{ttl}h"` parameter (no longer accepted by the new SDK signature; server-side TTL is now managed at the account/container level on the Supermemory dashboard)
+- Result ID extraction broadened to try both `result.id` and `result.document_id` for forward compatibility with the new `AddResponse` shape
+
+Surfaced during v1.1.1 validation when chat_exchange writes from v2_chat were silently returning None. Combined with the PII heuristic fix below, the Supermemory write path is now end-to-end functional for the first time on the standalone chat surface.
+
+### 6. PII heuristic false-positive fix in `session_memory._passes_pii_heuristic`
 
 The pre-write PII safety net used naive substring matching on a token list including `"ein"`, `"iban"`, `"dob"`, `"routing"`, `"license"`. Every chat answer containing common English words like "being / their / certain / obtain" silently failed validation because `"ein"` was a substring. This blocked 100% of `chat_exchange` writes from `v2_chat`.
 

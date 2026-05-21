@@ -96,12 +96,13 @@ class SupermemoryCorpusStore:
         meta = {"kind": "corpus_chunk", **(metadata or {})}
         tag = container_tag or self.corpus_tag
         try:
-            result = client.memories.add(
+            # Supermemory SDK v3.x: client.add() at top level (was client.memories.add).
+            result = client.add(
                 content=content,
                 container_tag=tag,
                 metadata=meta,
             )
-            return getattr(result, "id", None)
+            return getattr(result, "id", None) or getattr(result, "document_id", None)
         except Exception as exc:
             logger.error("Supermemory add failed: %s", exc)
             return None

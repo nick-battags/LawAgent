@@ -147,13 +147,14 @@ class SessionMemory:
 
         try:
             client = self._get_client()
-            result = client.memories.add(
+            # Supermemory SDK v3.x: client.add() (top-level), forget_after removed.
+            # Server-side TTL is managed at account/container level on Supermemory.
+            result = client.add(
                 content=content,
                 container_tag=self.session_id,
                 metadata=meta,
-                forget_after=f"{self.ttl_hours}h",
             )
-            memory_id = getattr(result, "id", None)
+            memory_id = getattr(result, "id", None) or getattr(result, "document_id", None)
             logger.info(
                 "SessionMemory: wrote summary for session %s (id=%s, chars=%d)",
                 self.session_id, memory_id, len(content),
@@ -196,13 +197,13 @@ class SessionMemory:
 
         try:
             client = self._get_client()
-            result = client.memories.add(
+            # Supermemory SDK v3.x: client.add() (top-level), forget_after removed.
+            result = client.add(
                 content=content,
                 container_tag=self.session_id,
                 metadata=meta,
-                forget_after=f"{self.ttl_hours}h",
             )
-            return getattr(result, "id", None)
+            return getattr(result, "id", None) or getattr(result, "document_id", None)
         except Exception as exc:
             logger.error("SessionMemory write failed for session %s kind=%s: %s", self.session_id, kind, exc)
             return None
