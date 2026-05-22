@@ -25,7 +25,7 @@
       <h1 class="land-h1">Two tools for M&amp;A legal work</h1>
       <p class="land-lede">
         Generate and redline contracts in a track-changes workspace, or chat with
-        a 14,500-chunk M&amp;A corpus &mdash; powered by Cohere embeddings, Neon
+        an 11,266-chunk M&amp;A corpus &mdash; powered by Cohere embeddings, Neon
         pgvector, and Vertex Gemini 2.5 Flash on a corrective RAG pipeline.
       </p>
     </section>
@@ -80,34 +80,59 @@
 User query / draft / prompt
           &#9474;
           &#9660;
-  <strong>Flash-Lite Anonymizer</strong>           &larr; always-on, per-session two-way pseudonym map
-          &#9474;  anonymized text
+  <strong>Flash-Lite Anonymizer</strong>         &larr; PROCESS: replace entities with placeholders
+          &#9474;  anonymized text          (PARTY_A, ORG_001, ...). Server-side, in-memory only.
           &#9660;
-  <strong>Cohere Embed v4</strong>                  &larr; 1024-dim query vector
+  <strong>Cohere Embed v4 (1024-d)</strong>      &larr; PROCESS: embed anonymized query
+          &#9474;  query vector
+          &#9660;
+  &#9556;========================&#9559;
+  &#9553; <strong>Neon pgvector</strong>          &#9553;  DATA LAYER: 11,266 corpus chunks
+  &#9553; (IVFFlat index)         &#9553;  (22 playbook + 7,067 CUAD + 4,177 MAUD)
+  &#9553; cosine &rarr; top-12        &#9553;  PROCESS: nearest-neighbor retrieval
+  &#9562;========================&#9565;
+          &#9474; top-12 + (optional) session context &darr;
           &#9474;
+          &#9474;        &#9556;==============================&#9559;
+          &#9474; &larr;&minus;&minus; &#9553; <strong>Supermemory kind=context</strong>    &#9553;  DATA LAYER: per-session
+          &#9474;        &#9553; (read; skipped if empty)     &#9553;  uploaded docs (NotebookLM-style)
+          &#9474;        &#9562;==============================&#9565;
           &#9660;
-  <strong>Neon pgvector</strong>                    &larr; top-12 candidates from ~11,266 corpus chunks
-          &#9474;
+  <strong>Cohere Rerank 3.5</strong>             &larr; PROCESS: cross-encoder re-scoring  [Hub only]
+          &#9474;  reranked context
           &#9660;
-  <strong>Cohere Rerank 3.5</strong>                &larr; cross-encoder relevance scoring
-          &#9474;
-          &#9660;
-  <strong>Vertex Gemini 2.5 Flash</strong>          &larr; issue spotter + drafter, structured JSON output
-          &#9474;
-          &#9660;
-  <strong>Editing Hub</strong>                      &larr; per-change accept / reject / rewrite
-          &#9474;
-          &#9660;
-  redline.docx &middot; clean.docx &middot; memo.docx &middot; register.json
-          &#9474;
-          &#9660;
-  <strong>Supermemory</strong>                      &larr; anonymized session summary, 24h TTL
+  <strong>Vertex Gemini 2.5 Flash</strong>      &larr; PROCESS: generate
+          &#9474;                              Hub  &rarr; structured JSON, &le;14 issues + drafts
+          &#9474;                              Chat &rarr; streamed prose + [n] citations
+   &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9524;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9492;
+   &#9474;                                   &#9474;
+   &#9660;  Drafting &amp; Review Hub          &#9660;  Ask the Corpus
+  <strong>Editing Hub</strong>                          <strong>Stream answer</strong>
+   PROCESS: per-change accept              PROCESS: SSE token stream
+   reject / inline rewrite                 &#9474;  + rehydrate placeholders
+   &#9474;                                   &#9474;
+   &#9660; bake                              &#9660;
+  redline.docx &middot; clean.docx               &#9556;================================&#9559;
+  memo.docx &middot; register.json               &#9553; <strong>Supermemory kind=</strong>            &#9553;
+   &#9474;                                   &#9553; <strong>chat_exchange</strong> (write)        &#9553;
+   &#9660;                                   &#9562;================================&#9565;
+  &#9556;================================&#9559;
+  &#9553; <strong>Supermemory kind=</strong>            &#9553;
+  &#9553; <strong>review_summary</strong> (write)        &#9553;
+  &#9562;================================&#9565;
+
+  &#8627; PII firewall regex re-screens every Supermemory write (second defense layer)
+  &#8627; Anonymizer rehydrates entity names on the way back to the user
+  &#8627; Per-session 24h TTL on all Supermemory data (server-side account setting)
 </pre>
       </div>
       <p class="land-stack-caption">
-        PII is anonymized client-side before retrieval; LLMs only see pseudonymized
-        text. The session memory holds only post-anonymization summaries, gated by
-        a second regex PII firewall on write.
+        Both surfaces (Drafting &amp; Review Hub and Ask the Corpus) share the
+        first five stages. The Hub branches into per-clause edit controls and
+        four downloadable artifacts; the Chat surface streams the answer back
+        and persists the anonymized Q&amp;A. PII is anonymized server-side
+        before any LLM or vector-store call, and a second regex PII firewall
+        gates every Supermemory write.
       </p>
     </section>
 
