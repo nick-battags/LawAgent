@@ -32,7 +32,7 @@ Each session produces four downloadable artifacts: `redline.docx` (native `<w:in
 - ~7,067 spans from the Contract Understanding Atticus Dataset (CUAD — clause-level annotations across 250+ contracts)
 - ~4,177 spans from the Merger Agreement Understanding Dataset (MAUD — question-level annotations across ~150 M&A agreements)
 
-Drop a document into the sidebar to ground the conversation in your own materials (per-session, 24-hour TTL, anonymized writes only).
+Drop a document into the sidebar to ground the conversation in your own materials (per-session, session-scoped server-side TTL, anonymized writes only).
 
 ---
 
@@ -42,8 +42,8 @@ Drop a document into the sidebar to ground the conversation in your own material
 graph LR
   U[User query / draft / prompt] --> AN[Flash-Lite<br/>Anonymizer]
   AN -->|anonymized text| E[Cohere Embed v4<br/>1024-d]
-  E -->|query vector| PG[(Neon pgvector<br/>11,266 corpus chunks)]
-  PG -->|top-12 candidates| RR[Cohere Rerank 3.5]
+  E -->|query vector| PG[(Neon pgvector<br/>11,266 corpus chunks · HNSW)]
+  PG -->|top-k Hub 12, Chat 6| RR[Cohere Rerank 3.5<br/>Hub only]
   RR -->|reranked top-k| G[Vertex Gemini 2.5 Flash<br/>issue spotter + drafter]
   G --> H[Editing Hub<br/>per-change controls]
   H --> B[Bake step]
@@ -51,7 +51,7 @@ graph LR
   B --> C[clean.docx]
   B --> M[memo.docx]
   B --> J[register.json]
-  H -.->|anonymized<br/>summary| SM[(Supermemory<br/>per-session, 24h TTL)]
+  H -.->|anonymized<br/>summary| SM[(Supermemory<br/>session-scoped)]
 ```
 
 The retrieval path is Corrective RAG: candidates from pgvector → reranker → optional Flash-Lite grader on borderline scores → Gemini Flash generator. The anonymizer runs first on every input so PII never reaches the LLM. The bake step writes anonymized summaries to Supermemory only after a post-hoc PII firewall re-check.
@@ -70,10 +70,11 @@ Flask · Vertex AI Gemini 2.5 Flash + Flash-Lite · Cohere Embed v4 + Rerank 3.5
 | Generator | Vertex Gemini 2.5 Flash | Long context, fast, cheap, no training on our data |
 | Anonymizer | Vertex Gemini 2.5 Flash-Lite | 60–75% cheaper than Flash; per-session two-way pseudonym map in process memory only |
 | Database | Neon (Free tier) | Serverless Postgres, scales to zero, pgvector support, $0/mo at portfolio traffic |
-| Session memory | Supermemory (Free tier) | Per-session container tags, anonymized writes only, 24h TTL via client-side sweep |
-| Deploy | Cloud Run + Cloudflare Pages | Both scale to zero; combined steady-state cost ~$3–8/mo |
+| Session memory | Supermemory (Free tier) | Per-session container tags keyed by session_id; anonymized writes only; server-side TTL managed at the Supermemory account level |
+| Demo deploy | Cloud Run (us-central1) + Cloudflare DNS | Cloud Run hosts the Flask app behind `lawagent.nickvbattaglia.com`, with `min-instances=1` to eliminate cold start; Cloudflare proxies DNS |
+| Portfolio deploy | Cloudflare Pages | Static Astro build at `nickvbattaglia.com`, auto-deployed on push |
 
-Realistic cost: **~$3–8/month at portfolio traffic** (50 analyses/day), with hard guards in place (kill switch wired to a $50 Cloud Billing alert, per-IP rate limit at 20/hr, daily token cap at 50K/IP).
+Realistic cost: **~$3–8/month at portfolio traffic** (Cloud Run min-instances=1 baseline + Vertex/Cohere per-request + Neon free tier). A `$50` Cloud Billing alert is recommended as a kill-switch (filed as a v1.2 backlog item; see `docs/BACKLOG.md`). Rate limits and token caps are not currently enforced in app code — appropriate for a portfolio demo with sparse traffic; would need to be added before any wider release.
 
 ---
 

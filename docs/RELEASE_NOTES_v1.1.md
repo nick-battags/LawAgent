@@ -45,10 +45,10 @@ This is the version that went public at the apex flip from Namecheap to Cloudfla
 |---|---|
 | Anonymizer | Vertex Gemini 2.5 Flash-Lite (per-session two-way pseudonym map, in-process only) |
 | Embeddings | Cohere `embed-v4.0`, output_dimension=1024 |
-| Vector store | Neon serverless Postgres + pgvector 0.8.0, IVFFlat index |
+| Vector store | Neon serverless Postgres + pgvector 0.8.0, HNSW index (`vector_cosine_ops`) |
 | Reranker | Cohere `rerank-v3.5` |
 | Generator | Vertex Gemini 2.5 Flash |
-| Session memory | Supermemory (anonymized writes only, 24h TTL) |
+| Session memory | Supermemory (anonymized writes only, session-scoped, server-side TTL) |
 | Backend | Flask on Cloud Run (us-central1, 2 GB / 2 vCPU) |
 | Frontend hosting | Cloudflare Pages (portfolio) + Cloudflare DNS |
 
@@ -61,7 +61,7 @@ Diagnostic sweep across Cloud Run, Vertex AI, Cohere, Neon, Supermemory, Cloud S
 - Zero ERROR or CRITICAL log events in the prior 24 hours (9 WARNINGs)
 - All public endpoints returning HTTP 200 (`/`, `/hub`, `/chat`, `/api/v2/context/list`)
 - Neon database: 176 MB / 512 MB free-tier cap (34% utilized)
-- pgvector IVFFlat index: 92 MB
+- pgvector HNSW index: 92 MB
 - Cohere: zero 429 rate-limits in 24h
 - Supermemory: 7/7 writes successful
 

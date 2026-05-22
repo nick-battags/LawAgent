@@ -241,6 +241,7 @@ body {
   margin: 0 0 1.5rem;
 }
 
+/* Legacy ASCII diagram styles (kept in case of fallback usage) */
 .land-diagram {
   background: var(--card);
   border: 1px solid var(--border);
@@ -262,6 +263,35 @@ body {
 .land-diagram pre strong {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* SVG pipeline diagram (current) */
+.land-diagram-wrap {
+  margin: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.land-diagram-svg {
+  display: block;
+  width: 100%;
+  max-width: 920px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.land-diagram-caption {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  font-style: italic;
+  text-align: center;
+  margin: 1rem auto 0;
+  max-width: 640px;
+  line-height: 1.55;
 }
 
 .land-stack-caption {

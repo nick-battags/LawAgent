@@ -52,7 +52,7 @@ The anonymizer module already has built-in graceful degradation: if Flash-Lite i
 
 The standalone `/chat` endpoint was reading session context from Supermemory but never writing the Q&A pair back. The Hub side-panel chat (`hub_chat._write_chat_exchange`) wrote correctly. This was an oversight from when the standalone chat was added later than the Hub.
 
-`v2_chat` now calls `session_memory.write(kind="chat_exchange", ...)` after every successful answer, storing the anonymized Q&A pair with a 24h server-side TTL on Supermemory. Metadata tags the surface as `"ask_the_corpus"` to distinguish from Hub-side writes.
+`v2_chat` now calls `session_memory.write(kind="chat_exchange", ...)` after every successful answer, storing the anonymized Q&A pair in Supermemory with a session-scoped server-side TTL (configured at the account level). Metadata tags the surface as `"ask_the_corpus"` to distinguish from Hub-side writes.
 
 Write is wrapped in try/except so a Supermemory outage cannot break the chat response.
 

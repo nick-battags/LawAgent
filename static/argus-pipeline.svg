@@ -1,0 +1,243 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 1500" font-family="'Inter', system-ui, -apple-system, sans-serif">
+  <defs>
+    <!-- Arrowhead -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5C5247"/>
+    </marker>
+    <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8B7F70"/>
+    </marker>
+
+    <!-- Subtle drop shadow for layered look -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1F1B17" flood-opacity="0.08"/>
+    </filter>
+
+    <style>
+      .bg                { fill: #FBF7EE; }
+      .grid              { stroke: #E5DCC8; stroke-width: 0.5; }
+
+      .process-box       { fill: #FFFFFF; stroke: #D9CFC0; stroke-width: 1.5; }
+      .data-box          { fill: #F5EDDC; stroke: #722F37; stroke-width: 2.5; }
+      .input-box         { fill: #FAF6EE; stroke: #B5A893; stroke-width: 1.5; stroke-dasharray: 4 3; }
+
+      .title-major       { font-family: 'Newsreader', Georgia, serif; font-weight: 600; font-size: 26px; fill: #1F1B17; letter-spacing: -0.5px; }
+      .subtitle-major    { font-size: 13px; fill: #8B7F70; letter-spacing: 0.5px; }
+
+      .box-title         { font-family: 'Newsreader', Georgia, serif; font-weight: 600; font-size: 17px; fill: #1F1B17; }
+      .box-title-data    { font-family: 'Newsreader', Georgia, serif; font-weight: 600; font-size: 17px; fill: #722F37; }
+      .box-sub           { font-size: 12px; fill: #5C5247; }
+      .box-detail        { font-size: 11px; fill: #8B7F70; }
+
+      .tag-process       { font-size: 10px; font-weight: 600; fill: #722F37; letter-spacing: 1.2px; }
+      .tag-data          { font-size: 10px; font-weight: 700; fill: #722F37; letter-spacing: 1.5px; }
+
+      .annotation        { font-size: 12px; fill: #5C5247; }
+      .annotation-italic { font-size: 12px; fill: #5C5247; font-style: italic; }
+      .branch-label      { font-size: 13px; font-weight: 600; fill: #722F37; }
+      .footnote          { font-size: 11px; fill: #5C5247; }
+      .footnote-bullet   { font-size: 11px; fill: #722F37; font-weight: 700; }
+
+      .arrow             { fill: none; stroke: #5C5247; stroke-width: 1.6; }
+      .arrow-dashed      { fill: none; stroke: #8B7F70; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow-branch      { fill: none; stroke: #722F37; stroke-width: 1.8; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="920" height="1500" class="bg"/>
+
+  <!-- ============================================================ -->
+  <!-- TITLE -->
+  <!-- ============================================================ -->
+  <text x="460" y="50" text-anchor="middle" class="title-major">Argus Corrective RAG Pipeline</text>
+  <text x="460" y="74" text-anchor="middle" class="subtitle-major">FROM USER INPUT TO PERSISTED ANONYMIZED MEMORY</text>
+  <line x1="320" y1="92" x2="600" y2="92" stroke="#722F37" stroke-width="1.5"/>
+
+  <!-- ============================================================ -->
+  <!-- STAGE 1: Input -->
+  <!-- ============================================================ -->
+  <g transform="translate(310, 120)">
+    <rect width="300" height="50" rx="8" class="input-box"/>
+    <text x="150" y="22" text-anchor="middle" class="box-title">User query / draft / prompt</text>
+    <text x="150" y="40" text-anchor="middle" class="box-detail">via Flask /api/v2/chat or /api/v2/hub endpoints</text>
+  </g>
+  <path d="M 460 170 L 460 200" class="arrow" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- STAGE 2: Flash-Lite Anonymizer -->
+  <!-- ============================================================ -->
+  <g transform="translate(310, 200)" filter="url(#shadow)">
+    <rect width="300" height="85" rx="8" class="process-box"/>
+    <text x="20" y="22" class="tag-process">PROCESS · ANONYMIZE</text>
+    <text x="20" y="44" class="box-title">Flash-Lite Anonymizer</text>
+    <text x="20" y="63" class="box-sub">e.g. [PARTY_A], [COMPANY_1], [AMOUNT_1]</text>
+    <text x="20" y="78" class="box-detail">server-side, in-process map (never persisted)</text>
+  </g>
+  <path d="M 460 285 L 460 320" class="arrow" marker-end="url(#arrow)"/>
+  <text x="475" y="307" class="annotation-italic">anonymized text</text>
+
+  <!-- ============================================================ -->
+  <!-- STAGE 3: Cohere Embed -->
+  <!-- ============================================================ -->
+  <g transform="translate(310, 320)" filter="url(#shadow)">
+    <rect width="300" height="75" rx="8" class="process-box"/>
+    <text x="20" y="22" class="tag-process">PROCESS · EMBED</text>
+    <text x="20" y="44" class="box-title">Cohere Embed v4</text>
+    <text x="20" y="63" class="box-detail">1024-dim vector · same model as ingest time</text>
+  </g>
+  <path d="M 460 395 L 460 430" class="arrow" marker-end="url(#arrow)"/>
+  <text x="475" y="417" class="annotation-italic">query vector</text>
+
+  <!-- ============================================================ -->
+  <!-- STAGE 4: Neon pgvector (DATA LAYER) -->
+  <!-- ============================================================ -->
+  <g transform="translate(310, 430)" filter="url(#shadow)">
+    <rect width="300" height="115" rx="8" class="data-box"/>
+    <text x="20" y="24" class="tag-data">◆ DATA LAYER · NEON PGVECTOR</text>
+    <text x="20" y="48" class="box-title-data">Vector store (HNSW index)</text>
+    <text x="20" y="68" class="box-sub">11,266 corpus chunks</text>
+    <text x="20" y="84" class="box-detail">22 playbook · 7,067 CUAD · 4,177 MAUD</text>
+    <text x="20" y="103" class="box-detail">cosine similarity → top-k (Hub 12 · Chat 6)</text>
+  </g>
+
+  <!-- Side branch: Supermemory context (read) -->
+  <g transform="translate(670, 430)" filter="url(#shadow)">
+    <rect width="220" height="115" rx="8" class="data-box"/>
+    <text x="14" y="24" class="tag-data">◆ DATA LAYER</text>
+    <text x="14" y="46" class="box-title-data">Supermemory</text>
+    <text x="14" y="66" class="box-sub">kind = context (read)</text>
+    <text x="14" y="84" class="box-detail">User-uploaded session docs</text>
+    <text x="14" y="100" class="box-detail">(skipped if session empty)</text>
+  </g>
+  <path d="M 670 488 L 610 488" class="arrow-dashed" marker-end="url(#arrow-dashed)"/>
+  <text x="639" y="478" text-anchor="middle" class="annotation-italic" font-size="10">optional</text>
+
+  <path d="M 460 545 L 460 580" class="arrow" marker-end="url(#arrow)"/>
+  <text x="475" y="567" class="annotation-italic">top-k + (optional) session ctx</text>
+
+  <!-- ============================================================ -->
+  <!-- STAGE 5: Cohere Rerank -->
+  <!-- ============================================================ -->
+  <g transform="translate(310, 580)" filter="url(#shadow)">
+    <rect width="300" height="90" rx="8" class="process-box"/>
+    <text x="20" y="22" class="tag-process">PROCESS · RE-SCORE</text>
+    <text x="20" y="44" class="box-title">Cohere Rerank 3.5</text>
+    <text x="20" y="63" class="box-sub">Cross-encoder relevance scoring</text>
+    <text x="20" y="80" class="box-detail">catches paraphrases cosine misses · Hub only</text>
+  </g>
+  <!-- "Hub only" badge -->
+  <g transform="translate(525, 590)">
+    <rect width="75" height="20" rx="10" fill="#722F37"/>
+    <text x="37.5" y="14" text-anchor="middle" font-size="10" font-weight="700" fill="#F5EDDC" letter-spacing="0.5">HUB ONLY</text>
+  </g>
+
+  <path d="M 460 670 L 460 705" class="arrow" marker-end="url(#arrow)"/>
+  <text x="475" y="692" class="annotation-italic">reranked context</text>
+
+  <!-- ============================================================ -->
+  <!-- STAGE 6: Gemini -->
+  <!-- ============================================================ -->
+  <g transform="translate(310, 705)" filter="url(#shadow)">
+    <rect width="300" height="105" rx="8" class="process-box"/>
+    <text x="20" y="22" class="tag-process">PROCESS · GENERATE</text>
+    <text x="20" y="44" class="box-title">Vertex Gemini 2.5 Flash</text>
+    <text x="20" y="64" class="box-sub">Hub → structured JSON, ≤14 issues + drafts</text>
+    <text x="20" y="82" class="box-sub">Chat → streamed prose + [n] citations</text>
+    <text x="20" y="98" class="box-detail">Sees only anonymized text + retrieved chunks</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- BRANCH POINT -->
+  <!-- ============================================================ -->
+  <text x="460" y="840" text-anchor="middle" class="branch-label">─── Surfaces diverge here ───</text>
+
+  <!-- Branch arrows -->
+  <path d="M 460 810 L 460 850 Q 460 870 440 870 L 220 870 Q 200 870 200 890 L 200 920" class="arrow-branch" marker-end="url(#arrow)"/>
+  <path d="M 460 810 L 460 850 Q 460 870 480 870 L 700 870 Q 720 870 720 890 L 720 920" class="arrow-branch" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- LEFT BRANCH: Drafting & Review Hub -->
+  <!-- ============================================================ -->
+  <text x="200" y="908" text-anchor="middle" class="branch-label">Drafting &amp; Review Hub</text>
+
+  <g transform="translate(80, 920)" filter="url(#shadow)">
+    <rect width="240" height="85" rx="8" class="process-box"/>
+    <text x="16" y="22" class="tag-process">PROCESS · EDIT</text>
+    <text x="16" y="44" class="box-title">Editing Hub workspace</text>
+    <text x="16" y="63" class="box-sub">Per-change accept · reject · rewrite</text>
+    <text x="16" y="78" class="box-detail">Anchored clause chat in side panel</text>
+  </g>
+  <path d="M 200 1005 L 200 1030" class="arrow" marker-end="url(#arrow)"/>
+  <text x="215" y="1022" class="annotation-italic">bake</text>
+
+  <g transform="translate(80, 1030)" filter="url(#shadow)">
+    <rect width="240" height="85" rx="8" fill="#FAF6EE" stroke="#B5A893" stroke-width="1.5"/>
+    <text x="16" y="22" class="tag-process">ARTIFACTS · DOWNLOAD</text>
+    <text x="16" y="44" class="box-title">Four downloadable artifacts</text>
+    <text x="16" y="63" class="box-detail">redline · clean · memo .docx</text>
+    <text x="16" y="78" class="box-detail">register.json · native &lt;w:ins&gt;/&lt;w:del&gt;</text>
+  </g>
+  <path d="M 200 1115 L 200 1145" class="arrow" marker-end="url(#arrow)"/>
+
+  <g transform="translate(80, 1145)" filter="url(#shadow)">
+    <rect width="240" height="100" rx="8" class="data-box"/>
+    <text x="16" y="22" class="tag-data">◆ DATA LAYER · WRITE</text>
+    <text x="16" y="46" class="box-title-data">Supermemory</text>
+    <text x="16" y="66" class="box-sub">kind = review_summary</text>
+    <text x="16" y="83" class="box-detail">anonymized=true</text>
+    <text x="16" y="96" class="box-detail">≤14 change records · session-scoped</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- RIGHT BRANCH: Ask the Corpus -->
+  <!-- ============================================================ -->
+  <text x="720" y="908" text-anchor="middle" class="branch-label">Ask the Corpus</text>
+
+  <g transform="translate(600, 920)" filter="url(#shadow)">
+    <rect width="240" height="85" rx="8" class="process-box"/>
+    <text x="16" y="22" class="tag-process">PROCESS · STREAM</text>
+    <text x="16" y="44" class="box-title">SSE token stream</text>
+    <text x="16" y="63" class="box-sub">Rehydrate placeholders → real names</text>
+    <text x="16" y="78" class="box-detail">Citations [1]–[n] sent on stream close</text>
+  </g>
+  <path d="M 720 1005 L 720 1145" class="arrow" marker-end="url(#arrow)"/>
+  <text x="735" y="1080" class="annotation-italic">on completion</text>
+
+  <g transform="translate(600, 1145)" filter="url(#shadow)">
+    <rect width="240" height="100" rx="8" class="data-box"/>
+    <text x="16" y="22" class="tag-data">◆ DATA LAYER · WRITE</text>
+    <text x="16" y="46" class="box-title-data">Supermemory</text>
+    <text x="16" y="66" class="box-sub">kind = chat_exchange</text>
+    <text x="16" y="83" class="box-detail">anonymized=true · surface=ask_the_corpus</text>
+    <text x="16" y="96" class="box-detail">Q&amp;A pair · session-scoped</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- FOOTNOTES -->
+  <!-- ============================================================ -->
+  <line x1="60" y1="1295" x2="860" y2="1295" stroke="#D9CFC0" stroke-width="1"/>
+
+  <g transform="translate(60, 1320)">
+    <text x="0" y="0" class="footnote-bullet">↪</text>
+    <text x="20" y="0" class="footnote">PII firewall regex re-screens content before every Supermemory write (second defense layer)</text>
+  </g>
+  <g transform="translate(60, 1345)">
+    <text x="0" y="0" class="footnote-bullet">↪</text>
+    <text x="20" y="0" class="footnote">Anonymizer two-way map rehydrates entity names on the way back to the user before display</text>
+  </g>
+  <g transform="translate(60, 1370)">
+    <text x="0" y="0" class="footnote-bullet">↪</text>
+    <text x="20" y="0" class="footnote">Per-session memory in Supermemory, scoped by session-id container tag (server-side TTL)</text>
+  </g>
+  <g transform="translate(60, 1395)">
+    <text x="0" y="0" class="footnote-bullet">↪</text>
+    <text x="20" y="0" class="footnote">All in-process state (anonymizer map, gunicorn cache) discarded on worker recycle — never persisted</text>
+  </g>
+
+  <!-- Stack indicator at bottom right -->
+  <g transform="translate(60, 1440)">
+    <text x="0" y="0" font-size="10" fill="#8B7F70" letter-spacing="1px">FLASK · GUNICORN · CLOUD RUN (min-instances=1) · NEON POSTGRES · CLOUDFLARE DNS · GCP</text>
+  </g>
+  <text x="860" y="1455" text-anchor="end" font-size="10" fill="#8B7F70">v1.1.1 · May 2026</text>
+</svg>

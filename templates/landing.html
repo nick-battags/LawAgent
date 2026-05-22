@@ -57,8 +57,9 @@
           <h2 class="land-card-title">Ask the Corpus</h2>
           <p class="land-card-desc">
             NotebookLM-style chat grounded in a curated 22-category M&amp;A playbook,
-            ~7,000 CUAD commercial-contract spans, and ~4,000 MAUD merger-agreement
-            spans. Streamed answers with source citations and a 24-hour session memory.
+            7,067 CUAD commercial-contract spans, and 4,177 MAUD merger-agreement
+            spans (11,266 total). Streamed answers with source citations and
+            session-scoped memory.
           </p>
           <ul class="land-card-tags">
             <li>Streaming answers</li>
@@ -75,57 +76,17 @@
     <section class="land-stack">
       <p class="land-stack-label">Architecture</p>
       <h2 class="land-stack-h2">Corrective RAG pipeline</h2>
-      <div class="land-diagram" aria-label="Pipeline diagram">
-<pre>
-User query / draft / prompt
-          &#9474;
-          &#9660;
-  <strong>Flash-Lite Anonymizer</strong>         &larr; PROCESS: replace entities with placeholders
-          &#9474;  anonymized text          (PARTY_A, ORG_001, ...). Server-side, in-memory only.
-          &#9660;
-  <strong>Cohere Embed v4 (1024-d)</strong>      &larr; PROCESS: embed anonymized query
-          &#9474;  query vector
-          &#9660;
-  &#9556;========================&#9559;
-  &#9553; <strong>Neon pgvector</strong>          &#9553;  DATA LAYER: 11,266 corpus chunks
-  &#9553; (IVFFlat index)         &#9553;  (22 playbook + 7,067 CUAD + 4,177 MAUD)
-  &#9553; cosine &rarr; top-12        &#9553;  PROCESS: nearest-neighbor retrieval
-  &#9562;========================&#9565;
-          &#9474; top-12 + (optional) session context &darr;
-          &#9474;
-          &#9474;        &#9556;==============================&#9559;
-          &#9474; &larr;&minus;&minus; &#9553; <strong>Supermemory kind=context</strong>    &#9553;  DATA LAYER: per-session
-          &#9474;        &#9553; (read; skipped if empty)     &#9553;  uploaded docs (NotebookLM-style)
-          &#9474;        &#9562;==============================&#9565;
-          &#9660;
-  <strong>Cohere Rerank 3.5</strong>             &larr; PROCESS: cross-encoder re-scoring  [Hub only]
-          &#9474;  reranked context
-          &#9660;
-  <strong>Vertex Gemini 2.5 Flash</strong>      &larr; PROCESS: generate
-          &#9474;                              Hub  &rarr; structured JSON, &le;14 issues + drafts
-          &#9474;                              Chat &rarr; streamed prose + [n] citations
-   &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9524;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9492;
-   &#9474;                                   &#9474;
-   &#9660;  Drafting &amp; Review Hub          &#9660;  Ask the Corpus
-  <strong>Editing Hub</strong>                          <strong>Stream answer</strong>
-   PROCESS: per-change accept              PROCESS: SSE token stream
-   reject / inline rewrite                 &#9474;  + rehydrate placeholders
-   &#9474;                                   &#9474;
-   &#9660; bake                              &#9660;
-  redline.docx &middot; clean.docx               &#9556;================================&#9559;
-  memo.docx &middot; register.json               &#9553; <strong>Supermemory kind=</strong>            &#9553;
-   &#9474;                                   &#9553; <strong>chat_exchange</strong> (write)        &#9553;
-   &#9660;                                   &#9562;================================&#9565;
-  &#9556;================================&#9559;
-  &#9553; <strong>Supermemory kind=</strong>            &#9553;
-  &#9553; <strong>review_summary</strong> (write)        &#9553;
-  &#9562;================================&#9565;
-
-  &#8627; PII firewall regex re-screens every Supermemory write (second defense layer)
-  &#8627; Anonymizer rehydrates entity names on the way back to the user
-  &#8627; Per-session 24h TTL on all Supermemory data (server-side account setting)
-</pre>
-      </div>
+      <figure class="land-diagram-wrap" aria-label="Pipeline diagram">
+        <img src="/static/argus-pipeline.svg"
+             alt="Argus Corrective RAG pipeline: anonymize, embed, retrieve from Neon pgvector, rerank (Hub only), Gemini generation, branch to Hub editing workspace + docx artifacts or Ask the Corpus SSE stream, then Supermemory write"
+             class="land-diagram-svg"
+             loading="lazy"/>
+        <figcaption class="land-diagram-caption">
+          Boxes with a double burgundy border are persistent data layers; single-border boxes are compute steps.
+          The dashed optional inbound arrow at the pgvector stage is the per-session context read from Supermemory,
+          skipped when the session has no uploaded documents.
+        </figcaption>
+      </figure>
       <p class="land-stack-caption">
         Both surfaces (Drafting &amp; Review Hub and Ask the Corpus) share the
         first five stages. The Hub branches into per-clause edit controls and
