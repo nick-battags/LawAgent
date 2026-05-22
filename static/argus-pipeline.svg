@@ -174,9 +174,9 @@
   <g transform="translate(80, 1030)" filter="url(#shadow)">
     <rect width="240" height="85" rx="8" fill="#FAF6EE" stroke="#B5A893" stroke-width="1.5"/>
     <text x="16" y="22" class="tag-process">ARTIFACTS · DOWNLOAD</text>
-    <text x="16" y="44" class="box-title">Four downloadable artifacts</text>
-    <text x="16" y="63" class="box-detail">redline · clean · memo .docx</text>
-    <text x="16" y="78" class="box-detail">register.json · native &lt;w:ins&gt;/&lt;w:del&gt;</text>
+    <text x="16" y="44" class="box-title">Four artifacts</text>
+    <text x="16" y="63" class="box-detail">redline · clean · memo · register</text>
+    <text x="16" y="78" class="box-detail">.docx + native track changes</text>
   </g>
   <path d="M 200 1115 L 200 1145" class="arrow" marker-end="url(#arrow)"/>
 
