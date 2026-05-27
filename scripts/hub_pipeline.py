@@ -225,7 +225,7 @@ def _run_missing_clause_proposer(
     )
 
     try:
-        raw = provider._generate_json(prompt, model=provider.generator_model, temperature=0.15)
+        raw = provider._generate_json(prompt, model=provider.generator_model, temperature=0.1)
         changes = json.loads(raw)
         if not isinstance(changes, list):
             return []
@@ -311,7 +311,7 @@ def _generate_draft(
         "Separate paragraphs with blank lines only."
     )
 
-    return provider._generate(gen_prompt, model=provider.generator_model, temperature=0.3)
+    return provider._generate(gen_prompt, model=provider.generator_model, temperature=0.15)
 
 
 # ---------------------------------------------------------------------------
@@ -479,14 +479,28 @@ def run_hub_session(
             draft_text_raw = extract_text(file_bytes, filename)
 
         # ── Step 2: anonymize ──────────────────────────────────────────────
-        from scripts.anonymizer import get_session_anonymizer
-        anon = get_session_anonymizer(session_id)
-        draft_anon, _ = anon.anonymize(draft_text_raw) if draft_text_raw else ("", {})
-        prompt_anon, _ = anon.anonymize(prompt) if prompt else ("", {})
+        # Generate mode (no uploaded document): the prompt is the user's own
+        # drafting brief, not an uploaded client file with confidential party
+        # names.  Skip the Flash-Lite round-trip — the generated draft will
+        # use real names from the prompt directly, so no rehydration is needed
+        # either.  All other modes (revise / review) process uploaded docs and
+        # still go through the full anonymizer path.
+        if mode == "generate":
+            anon = None
+            draft_anon = ""
+            prompt_anon = prompt or ""
+        else:
+            from scripts.anonymizer import get_session_anonymizer
+            anon = get_session_anonymizer(session_id)
+            draft_anon, _ = anon.anonymize(draft_text_raw) if draft_text_raw else ("", {})
+            prompt_anon, _ = anon.anonymize(prompt) if prompt else ("", {})
 
         # ── Step 3: retrieve & rerank ──────────────────────────────────────
         query = prompt_anon or draft_anon[:500]
-        corpus_chunks = _retrieve_and_rerank(query, top_k=12)
+        if mode == "generate":
+            corpus_chunks = []  # no uploaded doc — skip corpus retrieval entirely
+        else:
+            corpus_chunks = _retrieve_and_rerank(query, top_k=12)
         ctx_chunks = context_chunks or []
 
         # ── Step 4: generate/revise draft (modes A and B) ─────────────────
@@ -537,16 +551,19 @@ def run_hub_session(
         all_changes = capped
 
         # ── Step 6.5: rehydrate placeholders → real names BEFORE persistence ──
-        # The LLM ran on anonymized text, so original_text / proposed_text /
-        # rationale all reference [PARTY_1] etc. Rehydrate everything before the
-        # user sees it OR the DB stores it, so downstream display / bake / chat
-        # all work on real text.
-        draft_display = anon.rehydrate(draft_anon) if draft_anon else ""
-        for c in all_changes:
-            for k in ("original_text", "proposed_text", "current_text", "rationale", "clause_anchor"):
-                v = c.get(k)
-                if isinstance(v, str) and v:
-                    c[k] = anon.rehydrate(v)
+        # Revise/review ran on anonymized text; replace [PARTY_1] etc. back to
+        # real values before the user sees them or the DB stores them.
+        # Generate mode skipped the anonymizer, so draft_anon already contains
+        # real names — no substitution needed.
+        if anon and draft_anon:
+            draft_display = anon.rehydrate(draft_anon)
+            for c in all_changes:
+                for k in ("original_text", "proposed_text", "current_text", "rationale", "clause_anchor"):
+                    v = c.get(k)
+                    if isinstance(v, str) and v:
+                        c[k] = anon.rehydrate(v)
+        else:
+            draft_display = draft_anon
 
         # ── Step 7: persist to Postgres ────────────────────────────────────
         change_ids: list[str] = []
