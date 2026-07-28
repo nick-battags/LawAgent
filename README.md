@@ -49,7 +49,7 @@ graph LR
   RR -->|reranked context| G
   M -->|Generate without document: direct prompt| G
   G -->|Hub| H[Editing Hub<br/>per-change controls]
-  G -->|Research| S[Streamed answer<br/>supporting sources]
+  G -->|Research| S[Streamed answer<br/>retrieved sources]
   H --> B[Bake step]
   B --> R[redline.docx]
   B --> C[clean.docx]

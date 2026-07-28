@@ -43,7 +43,7 @@ candidly presented as a law-student portfolio project.
 - Describe Nick plainly as a JD/MBA student.
 - Describe Argus as an educational portfolio demonstration, not a commercial
   legal platform.
-- Make the document, clause, issue, decision, and supporting source the primary
+- Make the document, clause, issue, decision, and retrieved source the primary
   interface objects.
 - Prefer editorial typography, paper-like surfaces, ink, and restrained
   oxblood accents over generic AI/SaaS styling.

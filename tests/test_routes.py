@@ -56,6 +56,8 @@ def test_public_navigation_prefers_research_desk(client):
     assert 'href="/admin"' not in landing_html
     assert "Generate without a document" in landing_html
     assert "before any LLM or vector-store call" not in landing_html
+    assert "sources retrieved for each answer" in landing_html
+    assert "sources supporting each answer" not in landing_html
 
 
 def test_research_uses_neutral_retrieval_label(client):
