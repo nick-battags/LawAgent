@@ -29,8 +29,9 @@
   /* ── Ink ───────────────────────────────────────────────────────────────
      Warm charcoal, never pure black. */
   --ink: #1F1B17;             /* primary text */
-  --ink-muted: #5C5247;       /* secondary text */
-  --ink-faint: #8B7F70;       /* captions, hints, placeholders */
+  --ink-muted: #5C5247;       /* secondary text — 6.5:1 on paper */
+  --ink-faint: #6E6353;       /* captions, hints, placeholders — >=4.7:1 on
+                                 paper and paper-sunken (WCAG AA normal text) */
   --ink-inverse: #FBF7EE;     /* text on oxblood / dark fills */
 
   /* ── Oxblood accent ────────────────────────────────────────────────────

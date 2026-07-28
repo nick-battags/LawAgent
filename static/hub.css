@@ -29,17 +29,7 @@
   letter-spacing: -0.018em;
 }
 
-.hub-header {
-  border-bottom: 1px solid var(--border);
-  padding: 0 2rem;
-}
-
-.hub-header nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-}
+/* The page header is now the shared shell masthead (components.css). */
 
 /* ── Intake ─────────────────────────────────────────────────────────────── */
 
