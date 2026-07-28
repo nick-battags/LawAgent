@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Argus | Ask the Corpus</title>
+  <title>Argus | M&amp;A Research Desk</title>
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="stylesheet" href="/static/chat.css">
 </head>
@@ -37,13 +37,13 @@
     <!-- Left: session sources sidebar -->
     <aside class="sources-sidebar">
       <div class="sidebar-header">
-        <h2>Sources</h2>
-        <button id="addSourceBtn" class="btn-add">+ Add</button>
+        <h2>Session sources</h2>
+        <button id="addSourceBtn" class="btn-add">+ Add document</button>
       </div>
       <p class="sidebar-hint muted" id="sourcesEmptyHint">
-        No sources yet. Upload a playbook, term sheet, or prior draft to ground
-        the conversation in your own materials. The background M&amp;A corpus is
-        searched automatically on every question.
+        No session documents added. Add a playbook, term sheet, or prior draft
+        to include it in this session. The Argus research library is searched
+        automatically on every question.
       </p>
       <ul id="sourcesList" class="sources-list"></ul>
       <input type="file" id="sourceFileInput" accept=".pdf,.docx,.txt" hidden>
@@ -53,7 +53,7 @@
     <section class="chat-main">
       <div id="chatThread" class="chat-thread">
         <div class="chat-empty">
-          <h1>Ask the corpus</h1>
+          <h1>Research M&amp;A drafting patterns</h1>
           <p class="muted">e.g. &ldquo;What&rsquo;s a typical buy-side indemnification cap?&rdquo;
              or &ldquo;How does a tipping basket differ from a deductible basket?&rdquo;</p>
         </div>
@@ -61,10 +61,11 @@
 
       <form id="chatForm" class="chat-input-row" novalidate>
         <textarea id="chatInput" rows="2"
-          placeholder="Ask about M&amp;A drafting patterns…"
+          aria-label="Research question"
+          placeholder="Ask about an M&amp;A term or drafting pattern&#8230;"
           maxlength="500"></textarea>
         <button type="submit" id="sendBtn" class="primary">
-          <span id="sendLabel">Send</span>
+          <span id="sendLabel">Research</span>
           <span id="sendSpinner" class="spinner" hidden></span>
         </button>
       </form>

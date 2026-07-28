@@ -240,15 +240,16 @@
 
   function renderCitations(el, cites) {
     if (!cites || !cites.length) return;
-    el.innerHTML = 'Sources: ' + cites.map((c, i) => {
+    el.innerHTML = 'Retrieved sources: ' + cites.map((c, i) => {
       const tip = escapeAttr(c.title || (c.text || '').substring(0, 120) || `Source ${i + 1}`);
-      return `<span class="citation" title="${tip}">[${i + 1}]</span>`;
+      const sourceKind = c.category === 'session_context' ? 'Session' : 'Library';
+      return `<span class="citation" title="${tip}">[${i + 1}] ${sourceKind}</span>`;
     }).join(' ');
   }
 
   function setBusy(busy) {
     sendBtn.disabled = busy;
-    sendLabel.textContent = busy ? 'Asking…' : 'Send';
+    sendLabel.textContent = busy ? 'Researching…' : 'Research';
     sendSpinner.hidden = !busy;
   }
 

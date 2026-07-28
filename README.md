@@ -8,13 +8,13 @@ Generate a contract from a prompt, revise your own draft, or run a redline revie
 
 - **Live demo:** [lawagent.nickvbattaglia.com](https://lawagent.nickvbattaglia.com)
 - **Portfolio + case study:** [nickvbattaglia.com/projects/lawagent](https://nickvbattaglia.com/projects/lawagent)
-- **Two surfaces:** the [Drafting & Review Hub](https://lawagent.nickvbattaglia.com/hub) and the [Ask the Corpus](https://lawagent.nickvbattaglia.com/chat) chat interface
+- **Two surfaces:** the [Drafting & Review Hub](https://lawagent.nickvbattaglia.com/hub) and the [M&A Research Desk](https://lawagent.nickvbattaglia.com/research)
 
 [![Version](https://img.shields.io/badge/version-v1.1-722F37)](https://github.com/nick-battags/LawAgent/releases/tag/v1.1)
 [![License](https://img.shields.io/badge/license-MIT-722F37)](#license)
 [![Built with](https://img.shields.io/badge/stack-Flask%20%C2%B7%20Vertex%20Gemini%20%C2%B7%20Cohere%20%C2%B7%20Neon%20pgvector-722F37)](#tech-stack)
 
-> Educational demo by a JD/MBA candidate. **Not a lawyer, not legal advice, no attorney-client privilege.** See [/legal](https://lawagent.nickvbattaglia.com/legal).
+> Educational demo by a JD/MBA candidate. **Not a lawyer, not legal advice, no attorney-client privilege.**
 
 ---
 
@@ -27,12 +27,12 @@ Generate a contract from a prompt, revise your own draft, or run a redline revie
 
 Each session produces four downloadable artifacts: `redline.docx` (native `<w:ins>`/`<w:del>` track changes), `clean.docx` (accepted changes baked in), `memo.docx` (issues + rationale + decisions log), and `register.json` (structured change records). Per-change accept / reject / edit controls in the side panel. Anchored chat that references the specific clause being discussed.
 
-**Ask the Corpus** (`/chat`) — a NotebookLM-style interface for asking conversational questions about M&A drafting patterns. Streamed answers grounded in **11,266 corpus chunks** indexed in Neon pgvector:
+**M&A Research Desk** (`/research`) — a source-grounded interface for asking conversational questions about M&A drafting patterns. The legacy `/chat` URL remains a compatibility route for the same surface. Streamed answers are grounded in **11,266 corpus chunks** indexed in Neon pgvector:
 - A curated 22-chunk playbook across 12 categories (assignment, indemnification, MAC, R&W, governing law, dispute resolution, termination, IP ownership, payment terms, liability cap, confidentiality, non-solicit)
 - ~7,067 spans from the Contract Understanding Atticus Dataset (CUAD — clause-level annotations across 250+ contracts)
 - ~4,177 spans from the Merger Agreement Understanding Dataset (MAUD — question-level annotations across ~150 M&A agreements)
 
-Drop a document into the sidebar to ground the conversation in your own materials (per-session, session-scoped server-side TTL, anonymized writes only).
+Add a document under **Session sources** to ground the conversation in your own materials (per-session, session-scoped server-side TTL, anonymized writes only). Answers distinguish those uploads from the always-searched **Argus research library** and present the retrieved material as **Retrieved sources**.
 
 ---
 
@@ -40,23 +40,33 @@ Drop a document into the sidebar to ground the conversation in your own material
 
 ```mermaid
 graph LR
-  U[User query / draft / prompt] --> AN[Flash-Lite<br/>Anonymizer]
+  U[User query / draft / prompt] --> M{Surface and Hub mode}
+  M -->|Research, Revise, or Review| AN[Flash-Lite<br/>Anonymizer]
   AN -->|anonymized text| E[Cohere Embed v4<br/>1024-d]
   E -->|query vector| PG[(Neon pgvector<br/>11,266 corpus chunks · HNSW)]
-  PG -->|top-k Hub 12, Chat 6| RR[Cohere Rerank 3.5<br/>Hub only]
-  RR -->|reranked top-k| G[Vertex Gemini 2.5 Flash<br/>issue spotter + drafter]
-  G --> H[Editing Hub<br/>per-change controls]
+  PG -->|Hub top-k 12| RR[Cohere Rerank 3.5<br/>Hub only]
+  PG -->|Research top-k 6| G[Vertex Gemini 2.5 Flash]
+  RR -->|reranked context| G
+  M -->|Generate without document: direct prompt| G
+  G -->|Hub| H[Editing Hub<br/>per-change controls]
+  G -->|Research| S[Streamed answer<br/>supporting sources]
   H --> B[Bake step]
   B --> R[redline.docx]
   B --> C[clean.docx]
-  B --> M[memo.docx]
+  B --> MEMO[memo.docx]
   B --> J[register.json]
   H -.->|anonymized<br/>summary| SM[(Supermemory<br/>session-scoped)]
 ```
 
-The retrieval path is Corrective RAG: candidates from pgvector → reranker → optional Flash-Lite grader on borderline scores → Gemini Flash generator. The anonymizer runs first on every input so PII never reaches the LLM. The bake step writes anonymized summaries to Supermemory only after a post-hoc PII firewall re-check.
+Research and the document-backed Revise and Review modes anonymize input before
+retrieval. Generate without a document sends its drafting prompt directly to
+Gemini and intentionally skips anonymization and corpus retrieval, so that
+prompt must not contain confidential or identifying information. The bake step
+writes anonymized summaries to Supermemory only after a post-hoc PII firewall
+re-check.
 
-Full data-flow guarantees: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (planned).
+The verified route, workflow, and data-flow constraints for the renovation are
+recorded in [docs/UI_RENOVATION.md](docs/UI_RENOVATION.md).
 
 ---
 
@@ -113,7 +123,10 @@ Single command from the repo root:
 scripts/deploy.sh
 ```
 
-This wraps `gcloud builds submit` + `gcloud run services update` with the full env + secrets map per the [Phase 1 GCP setup](https://github.com/nick-battags/LawAgent/blob/main/docs/RUNBOOK.md) (planned doc). The script preserves all environment variables and Secret Manager bindings, so partial env updates don't drop secrets.
+This wraps `gcloud builds submit` + `gcloud run services update` with the
+current environment and Secret Manager bindings. Treat the script as the
+implementation source of truth until a separately reviewed production runbook
+is added.
 
 Required infrastructure (one-time):
 - GCP project with Vertex AI, Cloud Run, Cloud Build, Secret Manager enabled
@@ -123,13 +136,31 @@ Required infrastructure (one-time):
 - Cloudflare account managing the apex domain DNS
 - Cloud Run service account with `roles/aiplatform.user`, `roles/secretmanager.secretAccessor`, `roles/storage.objectAdmin` (scoped to the demo bucket)
 
+### Admin and observability
+
+Admin is an environment-only maintenance surface, not a public Argus feature.
+When `ADMIN_PIN` is absent, every `/admin*` page and Admin-only API returns an
+empty `404`, including requests carrying stale Admin session state. When
+`ADMIN_PIN` is configured, the existing PIN login remains available and
+unauthenticated protected APIs return JSON `401`.
+
+`run-lawagent.ps1` does not provide authentication defaults. Set a unique
+`ADMIN_PIN` and `FLASK_SECRET_KEY` in the caller's process environment only
+when local Admin access and persistent sessions are needed. Rotate any
+previously reused launcher values; removing a value from the current file does
+not remove it from Git history.
+
+Production observability lives in the Cloud Run, Neon, Vertex, Cohere,
+Supermemory, and Cloudflare provider dashboards. Do not enable Admin merely to
+monitor production.
+
 ---
 
 ## Repository layout
 
 ```
 LawAgent/
-├── app.py                      — Flask routes (Hub + chat + landing + APIs)
+├── app.py                      — Flask routes (Hub + Research + landing + APIs)
 ├── scripts/
 │   ├── hub_pipeline.py         — Three-mode Hub pipeline (generate / revise / review)
 │   ├── hub_export.py           — Four-artifact bake (redline / clean / memo / register)
@@ -143,7 +174,7 @@ LawAgent/
 │   │   ├── seed_playbook.py    — 22 curated playbook chunks
 │   │   └── ingest_datasets.py  — CUAD + MAUD bulk ingest into pgvector
 │   └── migrations/             — Postgres schema (vector(1024) for Cohere v4)
-├── templates/                  — Jinja2 templates for / /hub /chat /review /legal
+├── templates/                  — Jinja2 templates for / /hub /review /research /chat
 ├── static/                     — CSS (cream + burgundy palette) + JS (hub.js, chat.js)
 ├── prompts/                    — Versioned LLM prompts (generator, grader, rewriter)
 ├── tests/                      — pytest suite
@@ -161,6 +192,6 @@ MIT for the code in this repository. Sample fixtures and the curated playbook (`
 
 ## Disclaimer
 
-Argus is a portfolio demonstration tool built by a JD/MBA candidate for educational research on M&A contract drafting. It does **not** provide legal advice, does **not** establish an attorney-client relationship, and is **not** a substitute for counsel. Output should be verified by a licensed attorney before use. See [/legal](https://lawagent.nickvbattaglia.com/legal) for the full notice.
+Argus is a portfolio demonstration tool built by a JD/MBA candidate for educational research on M&A contract drafting. It does **not** provide legal advice, does **not** establish an attorney-client relationship, and is **not** a substitute for counsel. Output should be verified by a licensed attorney before use.
 
-**Built by [Nick Battaglia](https://nickvbattaglia.com)** — Indiana University Maurer School of Law (JD) + Kelley School of Business (MBA), 2027.
+**Built by [Nick Battaglia](https://nickvbattaglia.com)** — Indiana University Maurer School of Law (JD) + Kelley School of Business (MBA).
