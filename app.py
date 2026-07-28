@@ -47,6 +47,9 @@ ADMIN_PIN = os.environ.get("ADMIN_PIN", "")
 UPLOAD_DIR = Path("training_docs_inbox/uploads")
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
+if not ADMIN_PIN:
+    logger.info("ADMIN_PIN not set - admin routes are disabled.")
+
 
 def _eager_warmup() -> None:
     """Pre-initialize expensive clients at module import time.
@@ -286,18 +289,29 @@ def chat():
     return render_template("chat.html")
 
 
+@app.get("/research")
+def research():
+    return render_template("chat.html")
+
+
+def _admin_enabled() -> bool:
+    return bool(ADMIN_PIN)
+
+
 def _admin_authed() -> bool:
-    if session.get("admin_authed") is True:
-        return True
-    if not ADMIN_PIN:
-        logger.warning("ADMIN_PIN not set - admin access disabled for safety. Set ADMIN_PIN to enable admin features.")
-    return False
+    return _admin_enabled() and session.get("admin_authed") is True
+
+
+def _admin_unavailable() -> Response:
+    return Response(status=404)
 
 
 def _require_admin(f):
     from functools import wraps
     @wraps(f)
     def wrapper(*args, **kwargs):
+        if not _admin_enabled():
+            return _admin_unavailable()
         if not _admin_authed():
             return jsonify({"error": "Admin authentication required."}), 401
         return f(*args, **kwargs)
@@ -306,6 +320,8 @@ def _require_admin(f):
 
 @app.get("/admin")
 def admin():
+    if not _admin_enabled():
+        return _admin_unavailable()
     if not _admin_authed():
         return redirect(url_for("admin_login"))
     return render_template("admin.html")
@@ -313,8 +329,8 @@ def admin():
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
-    if not ADMIN_PIN:
-        return redirect(url_for("admin"))
+    if not _admin_enabled():
+        return _admin_unavailable()
     error = ""
     if request.method == "POST":
         pin = request.form.get("pin", "")
@@ -328,6 +344,8 @@ def admin_login():
 @app.get("/admin/logout")
 def admin_logout():
     session.pop("admin_authed", None)
+    if not _admin_enabled():
+        return _admin_unavailable()
     return redirect(url_for("admin_login"))
 
 

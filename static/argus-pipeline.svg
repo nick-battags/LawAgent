@@ -190,9 +190,9 @@
   </g>
 
   <!-- ============================================================ -->
-  <!-- RIGHT BRANCH: Ask the Corpus -->
+  <!-- RIGHT BRANCH: M&A Research Desk -->
   <!-- ============================================================ -->
-  <text x="720" y="908" text-anchor="middle" class="branch-label">Ask the Corpus</text>
+  <text x="720" y="908" text-anchor="middle" class="branch-label">M&amp;A Research Desk</text>
 
   <g transform="translate(600, 920)" filter="url(#shadow)">
     <rect width="240" height="85" rx="8" class="process-box"/>
@@ -209,7 +209,7 @@
     <text x="16" y="22" class="tag-data">◆ DATA LAYER · WRITE</text>
     <text x="16" y="46" class="box-title-data">Supermemory</text>
     <text x="16" y="66" class="box-sub">kind = chat_exchange</text>
-    <text x="16" y="83" class="box-detail">anonymized=true · surface=ask_the_corpus</text>
+    <text x="16" y="83" class="box-detail">anonymized=true · session-scoped</text>
     <text x="16" y="96" class="box-detail">Q&amp;A pair · session-scoped</text>
   </g>
 

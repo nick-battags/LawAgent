@@ -23,8 +23,12 @@ if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     throw "Missing .venv python at .\.venv\Scripts\python.exe. Create your venv first."
 }
 
-$env:ADMIN_PIN = "1322"
-$env:FLASK_SECRET_KEY = "R@mblerstags67."
+if ([string]::IsNullOrWhiteSpace($env:ADMIN_PIN)) {
+    Write-Host "ADMIN_PIN is not set; local admin routes will remain disabled."
+}
+if ([string]::IsNullOrWhiteSpace($env:FLASK_SECRET_KEY)) {
+    Write-Host "FLASK_SECRET_KEY is not set; Flask will use an ephemeral key for this process."
+}
 Set-EnvDefault -Name "LAWAGENT_RUNTIME_MODE" -Value "auto"
 Set-EnvDefault -Name "LAWAGENT_ALLOW_RUNTIME_MODE_OVERRIDE" -Value "true"
 Set-EnvDefault -Name "GRADER_MODEL" -Value "llama3.1:8b"
