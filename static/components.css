@@ -1,0 +1,212 @@
+/* ============================================================================
+   Argus shared shell & primitives
+   ----------------------------------------------------------------------------
+   Consumes tokens.css. Provides the application shell that is identical across
+   the landing, Drafting & Review Hub, and M&A Research Desk pages:
+
+     - skip link
+     - masthead (Argus identity, portfolio-demo status, Hub/Research nav)
+     - footer / disclaimer treatment
+     - a strong, consistent keyboard focus ring
+     - a shared status badge
+
+   Page-specific layout and components continue to live in their own
+   stylesheets. This file must be loaded after tokens.css and before the
+   page stylesheet on every page.
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ── Skip link (keyboard first-stop) ───────────────────────────────────── */
+
+.skip-link {
+  position: absolute;
+  left: var(--space-2);
+  top: -3rem;
+  z-index: 1100;
+  background: var(--oxblood);
+  color: var(--ink-inverse);
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+  transition: top var(--transition-fast);
+}
+
+.skip-link:focus {
+  top: var(--space-2);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ── Masthead ──────────────────────────────────────────────────────────── */
+
+.masthead {
+  flex: 0 0 auto;               /* never stretch inside flex-column layouts */
+  height: var(--masthead-height);
+  border-bottom: 1px solid var(--border);
+  background: var(--paper-raised);
+}
+
+.masthead-inner {
+  max-width: var(--container-wide);
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.masthead-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.masthead-back {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--border);
+  transition: color var(--transition-fast);
+}
+
+.masthead-back:hover { color: var(--oxblood); }
+
+.masthead-logo {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.masthead-status {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 0.2rem 0.6rem;
+  white-space: nowrap;
+}
+
+.masthead-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* Neutralize bare `nav {}` element rules from page stylesheets
+     (e.g. styles.css sets max-width / auto margins / margin-bottom). */
+  max-width: none;
+  margin: 0;
+}
+
+/* The shell owns link decoration inside the masthead regardless of any
+   bare `a {}` / `a:hover {}` rules a page stylesheet may define. */
+.masthead a,
+.masthead a:hover {
+  text-decoration: none;
+}
+
+.masthead-link {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-muted);
+  text-decoration: none;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.masthead-link:hover {
+  color: var(--oxblood);
+  background: var(--surface);
+}
+
+.masthead-link[aria-current="page"] {
+  color: var(--oxblood);
+  background: var(--oxblood-tint);
+}
+
+/* ── Footer & disclaimer ───────────────────────────────────────────────── */
+
+.shell-footer {
+  border-top: 1px solid var(--border);
+  background: var(--paper-raised);
+}
+
+.shell-footer-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-5) var(--gutter);
+  text-align: center;
+}
+
+/* Consistent disclaimer treatment across pages, wherever it appears. */
+.shell-disclaimer {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--ink-faint);
+}
+
+/* ── Shared status badge ───────────────────────────────────────────────── */
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--ink-faint);
+  background: var(--surface);
+}
+
+.status-tag--info    { color: var(--oxblood); border-color: var(--oxblood-border); background: var(--oxblood-tint); }
+.status-tag--success { color: var(--success); border-color: rgba(92, 122, 86, 0.4); background: var(--success-tint); }
+.status-tag--warning { color: var(--warning); border-color: rgba(181, 127, 38, 0.4); background: var(--warning-tint); }
+.status-tag--danger  { color: var(--danger);  border-color: rgba(179, 58, 58, 0.4);  background: var(--danger-tint); }
+
+/* ── Global keyboard focus ─────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Mouse users clicking these controls should not get a lingering ring. */
+:focus:not(:focus-visible) { outline: none; }
+
+/* ── Narrow-width fallback ─────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .masthead {
+    height: auto;
+    padding: var(--space-2) 0;
+  }
+  .masthead-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  .masthead-nav { flex-wrap: wrap; }
+}

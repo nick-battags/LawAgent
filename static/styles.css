@@ -527,7 +527,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;
-  color: #dde3f0;
+  color: var(--ink);
   background: var(--bg);
   line-height: 1.6;
   font-size: 14px;

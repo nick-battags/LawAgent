@@ -4,10 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Argus | M&amp;A Research Desk</title>
+  <meta name="description" content="M&amp;A Research Desk — explore drafting patterns across a curated M&amp;A source library with streamed, source-grounded answers. Educational portfolio demonstration; not legal advice.">
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/components.css">
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="stylesheet" href="/static/chat.css">
 </head>
 <body class="chat-page">
+
+  <a class="skip-link" href="#main">Skip to content</a>
 
   <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
     <div class="modal-box">
@@ -22,17 +27,21 @@
     </div>
   </div>
 
-  <header class="chat-header">
-    <div class="brand-group">
-      <a href="https://nickvbattaglia.com" class="nav-back" rel="noopener">&larr; Nick Battaglia</a>
-      <a href="/" class="brand">Argus</a>
-    </div>
-    <div class="nav-right">
-      <a href="/hub" class="nav-link">Hub &#8599;</a>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="masthead-brand">
+        <a href="https://nickvbattaglia.com" class="masthead-back" rel="noopener">&larr; Nick Battaglia</a>
+        <a href="/" class="masthead-logo">Argus</a>
+        <span class="masthead-status" title="Educational portfolio demonstration">Portfolio demo</span>
+      </div>
+      <nav class="masthead-nav" aria-label="Primary">
+        <a href="/hub" class="masthead-link">Drafting &amp; Review</a>
+        <a href="/research" class="masthead-link" aria-current="page">Research</a>
+      </nav>
     </div>
   </header>
 
-  <main class="chat-layout">
+  <main id="main" class="chat-layout">
 
     <!-- Left: session sources sidebar -->
     <aside class="sources-sidebar">
@@ -69,8 +78,8 @@
           <span id="sendSpinner" class="spinner" hidden></span>
         </button>
       </form>
-      <p class="chat-disclaimer muted">
-        Argus demo &mdash; not legal advice. Sessions auto-expire in 24h.
+      <p class="chat-disclaimer shell-disclaimer">
+        Portfolio demonstration &mdash; not legal advice. Sessions auto-expire in 24h.
       </p>
     </section>
 

@@ -1,4 +1,6 @@
-/* LawAgent corpus chat styles — cream + burgundy editorial theme */
+/* Argus M&A Research Desk styles — cream + oxblood editorial theme.
+   Design tokens come from tokens.css; the shared masthead comes from
+   components.css. */
 
 /* ── Consent modal (not in styles.css scope for this page) ──────────── */
 
@@ -85,18 +87,7 @@
   font-family: 'Inter', system-ui, sans-serif;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────── */
-
-.chat-header {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 1.5rem;
-  height: 56px;
-  border-bottom: 1px solid #D9CFC0;
-  background: #FBF7EE;
-}
+/* Header is provided by the shared shell (components.css .masthead). */
 
 /* ── Layout ──────────────────────────────────────────────────────────── */
 
@@ -157,7 +148,7 @@
   font-size: 0.75rem;
   line-height: 1.5;
   margin: 0 0 1rem;
-  color: #666;
+  color: var(--ink-faint);
 }
 
 .sources-list {
@@ -195,13 +186,13 @@
 
 .source-meta {
   font-size: 0.68rem;
-  color: #666;
+  color: var(--ink-faint);
 }
 
 .source-remove {
   background: none;
   border: none;
-  color: #555;
+  color: var(--ink-muted);
   cursor: pointer;
   padding: 0 0.25rem;
   font-size: 1.1rem;
@@ -246,7 +237,7 @@
 
 .chat-empty .muted {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--ink-faint);
   line-height: 1.6;
 }
 
@@ -284,11 +275,11 @@
 .msg.assistant .citations {
   margin-top: 0.65rem;
   font-size: 0.78rem;
-  color: #666;
+  color: var(--ink-faint);
 }
 
 .msg.assistant .citation {
-  color: #722F37;
+  color: var(--oxblood);
   margin-right: 0.3rem;
   cursor: help;
   font-weight: 600;
@@ -328,9 +319,7 @@
 
 .chat-disclaimer {
   text-align: center;
-  font-size: 0.73rem;
   padding: 0.4rem 0 0.9rem;
-  color: #555;
 }
 
 /* ── Spinner (matches hub.css pattern) ───────────────────────────────── */
@@ -349,4 +338,4 @@
 }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 
-.muted { color: #666; }
+.muted { color: var(--ink-faint); }
