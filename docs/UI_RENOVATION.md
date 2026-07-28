@@ -60,7 +60,7 @@ Use these product terms consistently:
 | Short navigation label | **Research** |
 | User-uploaded research material | **Session sources** |
 | Always-searched indexed collection | **Argus research library** |
-| Evidence attached to an answer | **Supporting sources** |
+| Material retrieved for an answer | **Retrieved sources** |
 | Contextual research inside the Hub | **Clause research** |
 
 Do not use “Ask the Corpus” in new visible copy.

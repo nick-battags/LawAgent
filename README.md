@@ -32,7 +32,7 @@ Each session produces four downloadable artifacts: `redline.docx` (native `<w:in
 - ~7,067 spans from the Contract Understanding Atticus Dataset (CUAD — clause-level annotations across 250+ contracts)
 - ~4,177 spans from the Merger Agreement Understanding Dataset (MAUD — question-level annotations across ~150 M&A agreements)
 
-Add a document under **Session sources** to ground the conversation in your own materials (per-session, session-scoped server-side TTL, anonymized writes only). Answers distinguish those uploads from the always-searched **Argus research library** and present retrieved evidence as **Supporting sources**.
+Add a document under **Session sources** to ground the conversation in your own materials (per-session, session-scoped server-side TTL, anonymized writes only). Answers distinguish those uploads from the always-searched **Argus research library** and present the retrieved material as **Retrieved sources**.
 
 ---
 

@@ -58,6 +58,15 @@ def test_public_navigation_prefers_research_desk(client):
     assert "before any LLM or vector-store call" not in landing_html
 
 
+def test_research_uses_neutral_retrieval_label(client):
+    script_response = client.get("/static/chat.js")
+
+    assert script_response.status_code == 200
+    script = script_response.get_data(as_text=True)
+    assert "Retrieved sources:" in script
+    assert "Supporting sources:" not in script
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [

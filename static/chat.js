@@ -240,7 +240,7 @@
 
   function renderCitations(el, cites) {
     if (!cites || !cites.length) return;
-    el.innerHTML = 'Supporting sources: ' + cites.map((c, i) => {
+    el.innerHTML = 'Retrieved sources: ' + cites.map((c, i) => {
       const tip = escapeAttr(c.title || (c.text || '').substring(0, 120) || `Source ${i + 1}`);
       const sourceKind = c.category === 'session_context' ? 'Session' : 'Library';
       return `<span class="citation" title="${tip}">[${i + 1}] ${sourceKind}</span>`;
