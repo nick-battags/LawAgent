@@ -78,7 +78,7 @@
       <h2 class="land-stack-h2">Corrective RAG pipeline</h2>
       <figure class="land-diagram-wrap" aria-label="Pipeline diagram">
         <img src="/static/argus-pipeline.svg"
-             alt="Argus Corrective RAG pipeline: anonymize, embed, retrieve from Neon pgvector, rerank for the Hub, generate with Gemini, branch to Hub editing and document artifacts or the M&amp;A Research Desk stream, then write anonymized session memory"
+             alt="Argus data flow: Research and document-backed Hub modes anonymize and retrieve context, Generate without a document takes a direct prompt path, and Gemini returns either Hub artifacts or a streamed Research answer"
              class="land-diagram-svg"
              loading="lazy"/>
         <figcaption class="land-diagram-caption">
@@ -88,11 +88,10 @@
         </figcaption>
       </figure>
       <p class="land-stack-caption">
-        Both surfaces (Drafting &amp; Review Hub and M&amp;A Research Desk) share the
-        first five stages. The Hub branches into per-clause edit controls and
-        four downloadable artifacts; the Research surface streams the answer back
-        and persists the anonymized Q&amp;A. PII is anonymized server-side
-        before any LLM or vector-store call, and a second regex PII firewall
+        Research and document-backed Revise and Review workflows anonymize input
+        before retrieval. Generate without a document sends the drafting prompt
+        directly to Gemini and skips retrieval, so do not include confidential
+        or identifying information in that prompt. A second regex PII firewall
         gates every Supermemory write.
       </p>
     </section>

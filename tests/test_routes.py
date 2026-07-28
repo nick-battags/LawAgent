@@ -54,6 +54,8 @@ def test_public_navigation_prefers_research_desk(client):
     assert "Ask the Corpus" not in landing_html
     assert "Ask the Corpus" not in research_html
     assert 'href="/admin"' not in landing_html
+    assert "Generate without a document" in landing_html
+    assert "before any LLM or vector-store call" not in landing_html
 
 
 @pytest.mark.parametrize(

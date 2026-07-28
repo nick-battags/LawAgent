@@ -100,6 +100,8 @@ The renovation contract is:
 - when `ADMIN_PIN` is configured, the existing PIN login/logout behavior
   remains available and unauthenticated Admin APIs return JSON `401`;
 - Admin is not linked from public navigation and receives no visual redesign;
+- deployed environment templates and guides leave `ADMIN_PIN` unset so the
+  retired surface is not exposed on the public domain;
 - production observability remains in the Cloud Run, Neon, Vertex, Cohere,
   Supermemory, and Cloudflare provider dashboards;
 - complete deletion of the retained routes, templates, styles, JavaScript, and

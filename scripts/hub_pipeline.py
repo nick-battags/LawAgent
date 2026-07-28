@@ -5,14 +5,17 @@ Three modes — all converge on a common issue-spotter + missing-clause proposer
   Mode B: revise    — Gemini revises an uploaded draft per a prompt
   Mode C: review    — Gemini reviews an uploaded draft (no prompt required)
 
-All modes:
-  1. Extract text from uploaded .docx/.pdf (modes B/C) or use prompt (A)
-  2. Anonymize via Flash-Lite through the session anonymizer
-  3. Embed via Cohere Embed v4 → retrieve from Neon pgvector → Rerank 3.5
-  4. Call issue-spotter (≤HUB_MAX_CHANGES changes, structured JSON)
-  5. Call missing-clause proposer (≤HUB_MAX_MISSING records)
-  6. Persist hub_sessions + hub_changes to Postgres
-  7. Return session_id for client polling
+Mode-specific input path:
+  1. Extract text from uploaded .docx/.pdf (modes B/C) or use prompt (A).
+  2. Revise/review anonymize input, then retrieve and rerank corpus context.
+  3. Generate without a document sends its prompt directly to Gemini and skips
+     anonymization and corpus retrieval.
+
+All modes then:
+  4. Call issue-spotter (≤HUB_MAX_CHANGES changes, structured JSON).
+  5. Call missing-clause proposer (≤HUB_MAX_MISSING records).
+  6. Persist hub_sessions + hub_changes to Postgres.
+  7. Return session_id for client polling.
 
 Env vars (all have defaults; see 02c_Editing_Hub.md §Env vars):
   HUB_ENABLED, HUB_GENERATE_ENABLED, HUB_REVISE_ENABLED, HUB_REVIEW_ENABLED

@@ -51,7 +51,7 @@
   <!-- TITLE -->
   <!-- ============================================================ -->
   <text x="460" y="50" text-anchor="middle" class="title-major">Argus Corrective RAG Pipeline</text>
-  <text x="460" y="74" text-anchor="middle" class="subtitle-major">FROM USER INPUT TO PERSISTED ANONYMIZED MEMORY</text>
+  <text x="460" y="74" text-anchor="middle" class="subtitle-major">RESEARCH + DOCUMENT PATHS · DIRECT GENERATE PATH</text>
   <line x1="320" y1="92" x2="600" y2="92" stroke="#722F37" stroke-width="1.5"/>
 
   <!-- ============================================================ -->
@@ -63,13 +63,16 @@
     <text x="150" y="40" text-anchor="middle" class="box-detail">via Flask /api/v2/chat or /api/v2/hub endpoints</text>
   </g>
   <path d="M 460 170 L 460 200" class="arrow" marker-end="url(#arrow)"/>
+  <path d="M 310 145 C 235 145 235 758 310 758" class="arrow-dashed" marker-end="url(#arrow-dashed)"/>
+  <text x="224" y="425" text-anchor="middle" class="annotation-italic">Generate</text>
+  <text x="224" y="441" text-anchor="middle" class="annotation-italic">without document</text>
 
   <!-- ============================================================ -->
   <!-- STAGE 2: Flash-Lite Anonymizer -->
   <!-- ============================================================ -->
   <g transform="translate(310, 200)" filter="url(#shadow)">
     <rect width="300" height="85" rx="8" class="process-box"/>
-    <text x="20" y="22" class="tag-process">PROCESS · ANONYMIZE</text>
+    <text x="20" y="22" class="tag-process">RESEARCH + REVISE/REVIEW · ANONYMIZE</text>
     <text x="20" y="44" class="box-title">Flash-Lite Anonymizer</text>
     <text x="20" y="63" class="box-sub">e.g. [PARTY_A], [COMPANY_1], [AMOUNT_1]</text>
     <text x="20" y="78" class="box-detail">server-side, in-process map (never persisted)</text>
@@ -98,7 +101,7 @@
     <text x="20" y="48" class="box-title-data">Vector store (HNSW index)</text>
     <text x="20" y="68" class="box-sub">11,266 corpus chunks</text>
     <text x="20" y="84" class="box-detail">22 playbook · 7,067 CUAD · 4,177 MAUD</text>
-    <text x="20" y="103" class="box-detail">cosine similarity → top-k (Hub 12 · Chat 6)</text>
+    <text x="20" y="103" class="box-detail">cosine similarity → top-k (Hub 12 · Research 6)</text>
   </g>
 
   <!-- Side branch: Supermemory context (read) -->
@@ -143,8 +146,8 @@
     <text x="20" y="22" class="tag-process">PROCESS · GENERATE</text>
     <text x="20" y="44" class="box-title">Vertex Gemini 2.5 Flash</text>
     <text x="20" y="64" class="box-sub">Hub → structured JSON, ≤14 issues + drafts</text>
-    <text x="20" y="82" class="box-sub">Chat → streamed prose + [n] citations</text>
-    <text x="20" y="98" class="box-detail">Sees only anonymized text + retrieved chunks</text>
+    <text x="20" y="82" class="box-sub">Research → streamed prose + [n] citations</text>
+    <text x="20" y="98" class="box-detail">Context, or direct Generate prompt (no document)</text>
   </g>
 
   <!-- ============================================================ -->
@@ -232,7 +235,7 @@
   </g>
   <g transform="translate(60, 1395)">
     <text x="0" y="0" class="footnote-bullet">↪</text>
-    <text x="20" y="0" class="footnote">All in-process state (anonymizer map, gunicorn cache) discarded on worker recycle — never persisted</text>
+    <text x="20" y="0" class="footnote">Generate without a document skips anonymization and retrieval; prompts must not contain sensitive information</text>
   </g>
 
   <!-- Stack indicator at bottom right -->

@@ -105,12 +105,13 @@ cp .env.vps.example .env.vps
 Edit `.env.vps`:
 
 - `LAWAGENT_DOMAIN=lawagent.yourdomain.com`
-- `ADMIN_PIN=...`
 - `FLASK_SECRET_KEY=...`
 - `POSTGRES_PASSWORD=...`
 - `OLLAMA_BASE_URL=http://<home_tailscale_ip>:11434`
 - Optional app-level failover: `OLLAMA_BASE_URLS=http://<new_laptop_ip>:11434,http://<old_laptop_ip>:11434`
 - Leave `LAWAGENT_RUNTIME_MODE=auto` initially.
+- Leave `ADMIN_PIN` unset so the retired Admin surface remains unavailable on
+  the public domain.
 
 ### 7.3 Start stack
 
@@ -136,8 +137,9 @@ curl -f https://lawagent.yourdomain.com/api/v2/llm/status
 - `deterministic`: always skip Ollama.
 
 Frontend selector on analyzer panel sends mode for V2 analysis/template runs.
-Admin users can globally force mode from Backend Management -> Dashboard -> Runtime Control.
-This is protected by `ADMIN_PIN` login and overrides per-request runtime selections.
+The retained Backend Management runtime control is not enabled on a public
+deployment. Change the global runtime environment and redeploy instead of
+exposing the PIN-only Admin surface.
 
 ### 8.1) LLM fail-fast backoff
 

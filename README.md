@@ -40,23 +40,33 @@ Add a document under **Session sources** to ground the conversation in your own 
 
 ```mermaid
 graph LR
-  U[User query / draft / prompt] --> AN[Flash-Lite<br/>Anonymizer]
+  U[User query / draft / prompt] --> M{Surface and Hub mode}
+  M -->|Research, Revise, or Review| AN[Flash-Lite<br/>Anonymizer]
   AN -->|anonymized text| E[Cohere Embed v4<br/>1024-d]
   E -->|query vector| PG[(Neon pgvector<br/>11,266 corpus chunks · HNSW)]
-  PG -->|top-k Hub 12, Research 6| RR[Cohere Rerank 3.5<br/>Hub only]
-  RR -->|reranked top-k| G[Vertex Gemini 2.5 Flash<br/>issue spotter + drafter]
-  G --> H[Editing Hub<br/>per-change controls]
+  PG -->|Hub top-k 12| RR[Cohere Rerank 3.5<br/>Hub only]
+  PG -->|Research top-k 6| G[Vertex Gemini 2.5 Flash]
+  RR -->|reranked context| G
+  M -->|Generate without document: direct prompt| G
+  G -->|Hub| H[Editing Hub<br/>per-change controls]
+  G -->|Research| S[Streamed answer<br/>supporting sources]
   H --> B[Bake step]
   B --> R[redline.docx]
   B --> C[clean.docx]
-  B --> M[memo.docx]
+  B --> MEMO[memo.docx]
   B --> J[register.json]
   H -.->|anonymized<br/>summary| SM[(Supermemory<br/>session-scoped)]
 ```
 
-The retrieval path is Corrective RAG: candidates from pgvector → reranker → optional Flash-Lite grader on borderline scores → Gemini Flash generator. The anonymizer runs first on every input so PII never reaches the LLM. The bake step writes anonymized summaries to Supermemory only after a post-hoc PII firewall re-check.
+Research and the document-backed Revise and Review modes anonymize input before
+retrieval. Generate without a document sends its drafting prompt directly to
+Gemini and intentionally skips anonymization and corpus retrieval, so that
+prompt must not contain confidential or identifying information. The bake step
+writes anonymized summaries to Supermemory only after a post-hoc PII firewall
+re-check.
 
-Full data-flow guarantees: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (planned).
+The verified route, workflow, and data-flow constraints for the renovation are
+recorded in [docs/UI_RENOVATION.md](docs/UI_RENOVATION.md).
 
 ---
 
@@ -113,7 +123,10 @@ Single command from the repo root:
 scripts/deploy.sh
 ```
 
-This wraps `gcloud builds submit` + `gcloud run services update` with the full env + secrets map per the [Phase 1 GCP setup](https://github.com/nick-battags/LawAgent/blob/main/docs/RUNBOOK.md) (planned doc). The script preserves all environment variables and Secret Manager bindings, so partial env updates don't drop secrets.
+This wraps `gcloud builds submit` + `gcloud run services update` with the
+current environment and Secret Manager bindings. Treat the script as the
+implementation source of truth until a separately reviewed production runbook
+is added.
 
 Required infrastructure (one-time):
 - GCP project with Vertex AI, Cloud Run, Cloud Build, Secret Manager enabled
