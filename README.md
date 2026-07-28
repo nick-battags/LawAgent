@@ -194,4 +194,4 @@ MIT for the code in this repository. Sample fixtures and the curated playbook (`
 
 Argus is a portfolio demonstration tool built by a JD/MBA candidate for educational research on M&A contract drafting. It does **not** provide legal advice, does **not** establish an attorney-client relationship, and is **not** a substitute for counsel. Output should be verified by a licensed attorney before use.
 
-**Built by [Nick Battaglia](https://nickvbattaglia.com)** — Indiana University Maurer School of Law (JD) + Kelley School of Business (MBA), 2027.
+**Built by [Nick Battaglia](https://nickvbattaglia.com)** — Indiana University Maurer School of Law (JD) + Kelley School of Business (MBA).
