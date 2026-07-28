@@ -196,6 +196,10 @@
 /* Mouse users clicking these controls should not get a lingering ring. */
 :focus:not(:focus-visible) { outline: none; }
 
+/* The skip link moves focus into the content region (tabindex="-1"); the
+   region itself should not draw a ring — the moved focus is the affordance. */
+#main:focus { outline: none; }
+
 /* ── Narrow-width fallback ─────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
