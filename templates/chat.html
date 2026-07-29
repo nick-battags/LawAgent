@@ -14,7 +14,7 @@
 
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+  <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle" hidden>
     <div class="modal-box">
       <h2 id="consentTitle">Before you begin</h2>
       <p>Argus is a portfolio demonstration tool, not a licensed legal service.
@@ -23,6 +23,7 @@
          matter details.</p>
       <p>By clicking <strong>I understand, continue</strong> you acknowledge that
          outputs are AI-generated and should not be relied on as legal advice.</p>
+      <p id="consentError" class="consent-error" role="alert" aria-live="assertive" hidden></p>
       <button id="consentAccept" class="primary">I understand, continue</button>
     </div>
   </div>
@@ -51,11 +52,13 @@
       </div>
       <p class="sidebar-hint muted" id="sourcesEmptyHint">
         No session documents added. Add a playbook, term sheet, or prior draft
-        to include it in this session. The Argus research library is searched
-        automatically on every question.
+        (PDF or DOCX) to include it in this session. The Argus research library
+        is searched automatically on every question. Argus attempts to remove
+        identifying details before retrieval, but this is best effort and may
+        pass the original text through — use public or fictional material only.
       </p>
       <ul id="sourcesList" class="sources-list"></ul>
-      <input type="file" id="sourceFileInput" accept=".pdf,.docx,.txt" hidden>
+      <input type="file" id="sourceFileInput" accept=".pdf,.docx" hidden>
     </aside>
 
     <!-- Right: chat thread + input -->
@@ -79,12 +82,14 @@
         </button>
       </form>
       <p class="chat-disclaimer shell-disclaimer">
-        Portfolio demonstration &mdash; not legal advice. Sessions auto-expire in 24h.
+        Portfolio demonstration &mdash; not legal advice. Do not enter confidential
+        or identifying information. Sessions auto-expire in 24h.
       </p>
     </section>
 
   </main>
 
+  <script src="/static/consent.js"></script>
   <script src="/static/chat.js"></script>
 </body>
 </html>

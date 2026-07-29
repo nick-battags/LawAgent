@@ -19,21 +19,28 @@
   let currentMode = 'generate';
   let currentSessionId = null;
   let currentChanges = [];
-  let consentToken = sessionStorage.getItem('lawagent_consent_token') || null;
+  let pendingWorkspaceWarnings = [];
+  // Consent is owned by the shared gate in consent.js (loaded first); mirror
+  // its token locally so the X-Consent-Token headers below stay unchanged.
+  let consentToken = (window.argusConsent && window.argusConsent.token) || null;
+  document.addEventListener('argus:consent', e => { consentToken = e.detail.token; });
+  document.addEventListener('argus:consent-invalid', () => { consentToken = null; });
   let pollInterval = null;
 
   // ── DOM refs ─────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
-  const consentModal   = $('consentModal');
-  const consentAccept  = $('consentAccept');
   const hubForm        = $('hubForm');
   const modeTabs       = document.querySelectorAll('.mode-tab');
   const promptSection  = $('promptSection');
   const uploadSection  = $('uploadSection');
+  const uploadLabelText = $('uploadLabelText');
   const promptText     = $('promptText');
   const promptLabel    = $('promptLabel');
   const promptHint     = $('promptHint');
   const promptCounter  = $('promptCounter');
+  const intakeError    = $('intakeError');
+  const modeSteps      = $('modeSteps');
+  const modeNote       = $('modeNote');
   const submitBtn      = $('submitBtn');
   const submitLabel    = $('submitLabel');
   const submitSpinner  = $('submitSpinner');
@@ -44,6 +51,7 @@
   const contextDropZone = $('contextDropZone');
   const contextFileList = $('contextFileList');
   const editingHub     = $('editingHub');
+  const workspaceNotice = $('workspaceNotice');
   const hubModeLabel   = $('hubModeLabel');
   const hubPostureLabel = $('hubPostureLabel');
   const docViewer      = $('docViewer');
@@ -63,42 +71,62 @@
   const dlMemo         = $('dlMemo');
   const dlRegister     = $('dlRegister');
   const deleteSession  = $('deleteSession');
-
-  // ── Consent gate ─────────────────────────────────────────────────────────
-
-  function initConsent() {
-    if (consentToken) {
-      consentModal.style.display = 'none';
-      return;
-    }
-    consentModal.style.display = 'flex';
-    consentAccept.addEventListener('click', async () => {
-      try {
-        const r = await fetch('/api/consent/accept', { method: 'POST' });
-        if (r.ok) {
-          const data = await r.json();
-          consentToken = data.token || 'accepted';
-          sessionStorage.setItem('lawagent_consent_token', consentToken);
-        } else {
-          consentToken = 'accepted';
-          sessionStorage.setItem('lawagent_consent_token', consentToken);
-        }
-      } catch {
-        consentToken = 'accepted';
-        sessionStorage.setItem('lawagent_consent_token', consentToken);
-      }
-      consentModal.style.display = 'none';
-    });
-  }
+  const SUPPORTED_DOCUMENT_EXTENSIONS = ['.pdf', '.docx'];
 
   // ── Mode tab switching ────────────────────────────────────────────────────
 
+  // Mode truth — copy and behavior for each intake mode. Kept honest to the
+  // pipeline: Generate skips anonymization/retrieval; Revise/Review are
+  // document-backed and attempt (best-effort) anonymization; Review does not
+  // auto-rewrite. See docs/UI_RENOVATION.md "Functional truth before polish".
+  const MODE_CONFIG = {
+    generate: {
+      submit: 'Generate first draft',
+      promptLabel: 'What contract should I draft?',
+      promptPlaceholder: 'e.g. Draft a buy-side mutual NDA for a $25M software acquisition with 18-month indemnification and 20% cap.',
+      promptHint: 'Key terms, dollar amounts, and deal structure. Use public or fictional details only.',
+      steps: [
+        'Your prompt is sent straight to the drafting model — no document anonymization or research-library retrieval runs.',
+        'A first draft opens in the editing workspace.',
+        'You review spotted issues and suggested provisions, then export.',
+      ],
+      note: 'Because Generate skips retrieval and anonymization, do not include confidential or identifying details in the prompt. Optional context is held for later clause research, not this initial draft.',
+    },
+    revise: {
+      submit: 'Revise and open workspace',
+      uploadLabel: 'Upload your draft',
+      promptLabel: 'Revision instructions',
+      promptPlaceholder: 'e.g. Make confidentiality mutual; tighten indemnification to 20%/$50K/18mo; add a Delaware forum-selection clause.',
+      promptHint: 'What changes should I make? e.g. "Make confidentiality mutual; tighten indemnification to 20%/$50K/18mo."',
+      steps: [
+        'Argus attempts to remove identifying details, then retrieves relevant playbook and library passages.',
+        'Your draft opens in the workspace with proposed redlines and suggested provisions.',
+        'Accept, reject, or edit each change, then export.',
+      ],
+      note: 'Anonymization is best effort and may pass the original text through, so use public or fictional material only.',
+    },
+    review: {
+      submit: 'Review agreement',
+      uploadLabel: 'Upload the agreement to review',
+      steps: [
+        'Argus attempts to remove identifying details, then retrieves relevant passages.',
+        'The agreement opens in the workspace with spotted issues and suggested missing provisions — Review does not rewrite the document for you.',
+        'Work through each finding, then export a memo and change register.',
+      ],
+      note: 'Anonymization is best effort and may pass the original text through, so use public or fictional material only.',
+    },
+  };
+
   function switchMode(mode) {
     currentMode = mode;
+    clearIntakeError();
+    const cfg = MODE_CONFIG[mode] || MODE_CONFIG.generate;
+
     modeTabs.forEach(t => {
       const active = t.dataset.mode === mode;
       t.classList.toggle('active', active);
       t.setAttribute('aria-selected', active ? 'true' : 'false');
+      t.tabIndex = active ? 0 : -1;   // roving tabindex
     });
 
     const needsPrompt  = mode === 'generate' || mode === 'revise';
@@ -106,25 +134,57 @@
     promptSection.style.display = needsPrompt ? '' : 'none';
     uploadSection.style.display = needsUpload ? '' : 'none';
 
-    if (mode === 'generate') {
-      promptLabel.textContent = 'What contract should I draft?';
-      promptHint.textContent  = 'Describe the contract you want generated. Add key terms, dollar amounts, and deal structure.';
-      submitLabel.textContent = 'Generate first draft';
-    } else if (mode === 'revise') {
-      promptLabel.textContent = 'Revision instructions';
-      promptHint.textContent  = 'What changes should I make? e.g. "Make confidentiality mutual; tighten indemnification to 20%/$50K/18mo."';
-      submitLabel.textContent = 'Revise & open in Hub';
-    } else {
-      submitLabel.textContent = 'Open Editing Hub';
-    }
+    if (needsPrompt && cfg.promptLabel) promptLabel.textContent = cfg.promptLabel;
+    if (needsPrompt && cfg.promptHint)  promptHint.textContent  = cfg.promptHint;
+    if (needsPrompt && cfg.promptPlaceholder && promptText) promptText.placeholder = cfg.promptPlaceholder;
+    if (needsUpload && cfg.uploadLabel && uploadLabelText) uploadLabelText.textContent = cfg.uploadLabel;
+    submitLabel.textContent = cfg.submit;
+
+    renderModeSteps(cfg);
   }
 
-  modeTabs.forEach(tab => {
+  function renderModeSteps(cfg) {
+    if (modeSteps) {
+      modeSteps.innerHTML = '';
+      (cfg.steps || []).forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        modeSteps.appendChild(li);
+      });
+    }
+    if (modeNote) modeNote.textContent = cfg.note || '';
+  }
+
+  // Click + roving keyboard (Arrow/Home/End follow the WAI-ARIA tabs pattern).
+  const modeTabList = Array.from(modeTabs);
+  modeTabs.forEach((tab, i) => {
     tab.addEventListener('click', () => switchMode(tab.dataset.mode));
     tab.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchMode(tab.dataset.mode); }
+      let next = -1;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % modeTabList.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + modeTabList.length) % modeTabList.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = modeTabList.length - 1;
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchMode(tab.dataset.mode); return; }
+      else return;
+      e.preventDefault();
+      const target = modeTabList[next];
+      switchMode(target.dataset.mode);
+      target.focus();
     });
   });
+
+  // ── Inline intake error surface (accessible, replaces alert() for intake) ──
+
+  function showIntakeError(msg) {
+    if (!intakeError) { alert(msg); return; }
+    intakeError.textContent = msg;
+    intakeError.hidden = false;
+  }
+
+  function clearIntakeError() {
+    if (intakeError) { intakeError.textContent = ''; intakeError.hidden = true; }
+  }
 
   // ── Char counter ──────────────────────────────────────────────────────────
 
@@ -139,6 +199,17 @@
 
   // ── File drop zone ────────────────────────────────────────────────────────
 
+  function isSupportedDocument(file) {
+    if (!file || !file.name) return false;
+    const name = file.name.toLowerCase();
+    return SUPPORTED_DOCUMENT_EXTENSIONS.some(ext => name.endsWith(ext));
+  }
+
+  function showUnsupportedFile(file) {
+    const name = file && file.name ? `"${file.name}"` : 'That file';
+    showIntakeError(`${name} is not supported. Upload a PDF or DOCX document.`);
+  }
+
   function setupDropZone(zone, input, statusEl) {
     zone.addEventListener('click', () => input.click());
     zone.addEventListener('keydown', e => {
@@ -150,6 +221,10 @@
       e.preventDefault();
       zone.classList.remove('drag-over');
       if (e.dataTransfer.files[0]) {
+        if (!isSupportedDocument(e.dataTransfer.files[0])) {
+          showUnsupportedFile(e.dataTransfer.files[0]);
+          return;
+        }
         const dt = new DataTransfer();
         dt.items.add(e.dataTransfer.files[0]);
         input.files = dt.files;
@@ -158,6 +233,10 @@
     });
     if (statusEl) {
       input.addEventListener('change', () => {
+        if (input.files[0] && !isSupportedDocument(input.files[0])) {
+          showUnsupportedFile(input.files[0]);
+          input.value = '';
+        }
         statusEl.textContent = input.files[0] ? input.files[0].name : 'No file selected';
       });
     }
@@ -184,11 +263,22 @@
 
   const contextFiles = [];
   function addContextFile(file) {
+    if (!isSupportedDocument(file)) {
+      showUnsupportedFile(file);
+      return;
+    }
     contextFiles.push(file);
     const item = document.createElement('div');
     item.className = 'context-file-item';
-    item.innerHTML = `<span>${file.name}</span> <button class="remove-file" aria-label="Remove ${file.name}">×</button>`;
-    item.querySelector('.remove-file').addEventListener('click', () => {
+    const filename = document.createElement('span');
+    filename.textContent = file.name;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-file';
+    removeBtn.setAttribute('aria-label', `Remove ${file.name}`);
+    removeBtn.textContent = '×';
+    item.append(filename, ' ', removeBtn);
+    removeBtn.addEventListener('click', () => {
       const idx = contextFiles.indexOf(file);
       if (idx !== -1) contextFiles.splice(idx, 1);
       item.remove();
@@ -200,14 +290,28 @@
 
   hubForm.addEventListener('submit', async e => {
     e.preventDefault();
-    if (!consentToken) { consentModal.style.display = 'flex'; return; }
+    clearIntakeError();
+    pendingWorkspaceWarnings = [];
+    if (!consentToken) { window.argusConsent.showModal(); return; }
 
-    const prompt = promptText ? promptText.value.trim() : '';
-    if (currentMode === 'generate' && !prompt) {
+    // Review has no prompt control. Do not let text retained from Generate or
+    // Revise invisibly influence its retrieval query after a mode switch.
+    const prompt = currentMode === 'review'
+      ? ''
+      : (promptText ? promptText.value.trim() : '');
+    const hasFile = !!fileInput.files[0];
+
+    // Generate needs a prompt; Revise needs both a document and instructions;
+    // Review needs a document (its prompt is hidden).
+    if ((currentMode === 'generate' || currentMode === 'revise') && !prompt) {
+      showIntakeError(currentMode === 'generate'
+        ? 'Enter a prompt describing the contract to draft.'
+        : 'Enter the revision instructions for your draft.');
       promptText.focus();
       return;
     }
-    if ((currentMode === 'revise' || currentMode === 'review') && !fileInput.files[0]) {
+    if ((currentMode === 'revise' || currentMode === 'review') && !hasFile) {
+      showIntakeError('Upload a PDF or DOCX document to continue.');
       dropZone.focus();
       return;
     }
@@ -221,8 +325,19 @@
       const sessionResult = await submitHub(currentMode, prompt);
       currentSessionId = sessionResult.session_id;
 
+      const contextFailures = [];
       for (const ctxFile of contextFiles) {
-        await uploadContext(ctxFile);
+        try {
+          await uploadContext(ctxFile);
+        } catch (err) {
+          contextFailures.push(`${ctxFile.name}: ${err.message}`);
+        }
+      }
+      if (contextFailures.length) {
+        const warning =
+          `The session started, but some context files could not be attached: ${contextFailures.join('; ')}`;
+        pendingWorkspaceWarnings.push(warning);
+        showIntakeError(warning);
       }
 
       if (sessionResult.status === 'running') {
@@ -231,7 +346,9 @@
         openEditingHub(sessionResult);
       }
     } catch (err) {
-      alert(`Submission error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') {
+        showIntakeError(`Submission error: ${err.message}`);
+      }
       submitBtn.disabled = false;
       submitLabel.hidden = false;
       submitSpinner.hidden = true;
@@ -242,11 +359,14 @@
     if (!currentSessionId) return;
     const fd = new FormData();
     fd.append('file', file);
-    await fetch(`/api/v2/context/attach?session_id=${currentSessionId}`, {
+    const r = await fetch(`/api/v2/context/attach?session_id=${encodeURIComponent(currentSessionId)}`, {
       method: 'POST',
       headers: { 'X-Consent-Token': consentToken || '' },
       body: fd,
     });
+    if (!r.ok) {
+      throw await window.argusConsent.errorFromResponse(r, 'Context upload failed');
+    }
   }
 
   async function submitHub(mode, prompt) {
@@ -255,7 +375,7 @@
     fd.append('posture', document.getElementById('posture').value);
     fd.append('doc_type', document.getElementById('docType').value);
     fd.append('governing_law', document.getElementById('governingLaw').value);
-    if (prompt) fd.append('prompt', prompt);
+    if (mode !== 'review' && prompt) fd.append('prompt', prompt);
     if (fileInput.files[0]) fd.append('file', fileInput.files[0]);
 
     const r = await fetch(endpoint, {
@@ -264,8 +384,7 @@
       body: fd,
     });
     if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: r.statusText }));
-      throw new Error(err.error || r.statusText);
+      throw await window.argusConsent.errorFromResponse(r, 'Submission failed');
     }
     return r.json();
   }
@@ -275,14 +394,13 @@
     let pollCount = 0;
     const MAX_POLLS = 120; // 120 × 2.5s = 5 minutes timeout
     const t0 = Date.now();
-    // Update the spinner label with elapsed time + stage guess so the
-    // user isn't staring at a blank spinner during the 60-120s pipeline
+    // The server only reports broad running/ready/failed status — not real
+    // stage telemetry — so show honest, mode-appropriate elapsed-time text and
+    // mark it estimated rather than inventing retrieval/drafting sub-stages.
+    const working = currentMode === 'generate' ? 'Drafting your first draft' : 'Analyzing the document';
     const updateProgress = () => {
       const sec = Math.floor((Date.now() - t0) / 1000);
-      let stage = 'Retrieving corpus & drafting…';
-      if (sec > 30) stage = 'Spotting issues & proposing missing clauses…';
-      if (sec > 90) stage = 'Finalizing changes…';
-      if (submitLabel) submitLabel.textContent = `${stage} (${sec}s)`;
+      if (submitLabel) submitLabel.textContent = `${working}… (${sec}s, estimated)`;
     };
     updateProgress();
     if (submitLabel) submitLabel.hidden = false; // show the label alongside the spinner
@@ -291,7 +409,7 @@
       updateProgress();
       if (pollCount > MAX_POLLS) {
         clearInterval(pollInterval);
-        alert('Hub processing timed out. The server may still be working — refresh to check.');
+        showIntakeError('Processing timed out. The server may still be working — refresh to check.');
         submitBtn.disabled = false;
         submitLabel.hidden = false;
         resetSubmitLabel();
@@ -308,8 +426,8 @@
           openEditingHub(data);
         } else if (data.status === 'failed' || data.status === 'error') {
           clearInterval(pollInterval);
-          const msg = data.error ? `Hub processing failed: ${data.error}` : 'Hub processing failed. Please try again.';
-          alert(msg);
+          const msg = data.error ? `Processing failed: ${data.error}` : 'Processing failed. Please try again.';
+          showIntakeError(msg);
           submitBtn.disabled = false;
           submitLabel.hidden = false;
           resetSubmitLabel();
@@ -328,6 +446,10 @@
 
     document.querySelector('.hub-intake').style.display = 'none';
     editingHub.style.display = 'flex';
+    if (workspaceNotice) {
+      workspaceNotice.textContent = pendingWorkspaceWarnings.join(' ');
+      workspaceNotice.hidden = pendingWorkspaceWarnings.length === 0;
+    }
 
     hubModeLabel.textContent = data.mode || currentMode;
     hubPostureLabel.textContent = (data.posture || 'neutral').toUpperCase();
@@ -508,11 +630,10 @@
         headers: { 'Content-Type': 'application/json', 'X-Consent-Token': consentToken || '' },
         body: JSON.stringify(body),
       });
-      if (r.ok) {
-        change.current_action = action;
-        if (editedText !== undefined) change.current_text = editedText;
-        updateActionBadges(idx, action);
-      }
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Action failed');
+      change.current_action = action;
+      if (editedText !== undefined) change.current_text = editedText;
+      updateActionBadges(idx, action);
     } catch (err) {
       console.error('Action failed:', err);
     }
@@ -549,14 +670,11 @@
         method: 'POST',
         headers: { 'X-Consent-Token': consentToken || '' },
       });
-      if (r.ok) {
-        const data = await r.json();
-        enableDownloads(data);
-      } else {
-        alert('Bake failed. Please try again.');
-      }
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Bake failed');
+      const data = await r.json();
+      enableDownloads(data);
     } catch (err) {
-      alert(`Bake error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') alert(`Bake error: ${err.message}`);
     } finally {
       saveBakeBtn.disabled = false;
       saveBakeBtn.textContent = 'Save & download';
@@ -599,7 +717,7 @@
         }),
       });
 
-      if (!r.ok) { askAnswer.textContent = `Error: ${r.statusText}`; return; }
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Clause research failed');
 
       const ct = r.headers.get('Content-Type') || '';
       if (ct.includes('text/event-stream')) {
@@ -655,12 +773,15 @@
     if (!currentSessionId) return;
     if (!confirm('Delete this session and all artifacts? This cannot be undone.')) return;
     try {
-      await fetch(`/api/v2/hub/${currentSessionId}`, {
+      const r = await fetch(`/api/v2/hub/${currentSessionId}`, {
         method: 'DELETE',
         headers: { 'X-Consent-Token': consentToken || '' },
       });
-    } catch { /* best effort */ }
-    window.location.href = '/hub';
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Delete failed');
+      window.location.href = '/hub';
+    } catch (err) {
+      if (err.code !== 'CONSENT_REQUIRED') alert(`Delete error: ${err.message}`);
+    }
   });
 
   // ── Utilities ─────────────────────────────────────────────────────────────
@@ -699,12 +820,9 @@
 
   function resetSubmitLabel() {
     if (!submitLabel) return;
-    if (currentMode === 'revise') submitLabel.textContent = 'Revise & open in Hub';
-    else if (currentMode === 'review') submitLabel.textContent = 'Open Editing Hub';
-    else submitLabel.textContent = 'Generate first draft';
+    submitLabel.textContent = (MODE_CONFIG[currentMode] || MODE_CONFIG.generate).submit;
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
-  initConsent();
   switchMode('generate');
 })();

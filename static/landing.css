@@ -1,207 +1,266 @@
-/* LawAgent landing page styles — cream + oxblood editorial.
+/* Argus landing page — cream + oxblood editorial.
    Design tokens come from tokens.css; the shared masthead/footer come from
-   components.css. This file owns only the landing hero, card chooser, and
-   pipeline sections. */
+   components.css. This file owns the landing hero, spec panel, pathway cards,
+   and the architecture section. */
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
   font-size: 16px;
-  line-height: 1.7;
+  line-height: var(--leading-relaxed);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Main ────────────────────────────────────────────────────────────── */
-
 .land-main {
-  max-width: 960px;
+  max-width: var(--container, 1140px);
   margin: 0 auto;
-  padding: 0 1.5rem 4rem;
+  padding: 0 var(--gutter) var(--space-8);
 }
 
 /* ── Hero ────────────────────────────────────────────────────────────── */
 
 .land-hero {
-  text-align: center;
-  padding: 4rem 1rem 2.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--space-7);
+  align-items: center;
+  padding: var(--space-8) 0 var(--space-7);
+}
+
+@media (max-width: 900px) {
+  .land-hero { grid-template-columns: 1fr; gap: var(--space-6); padding: var(--space-6) 0; }
 }
 
 .land-eyebrow {
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--accent);
-  margin: 0 0 1rem;
+  letter-spacing: var(--tracking-label);
+  color: var(--oxblood);
+  margin: 0 0 var(--space-3);
 }
 
 .land-h1 {
-  font-family: var(--font-serif);
-  font-size: 2.75rem;
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 4.4vw, 3rem);
   font-weight: 600;
-  letter-spacing: -0.022em;
-  margin: 0 0 1rem;
-  line-height: 1.15;
-  color: var(--text);
+  letter-spacing: var(--tracking-tight);
+  margin: 0 0 var(--space-4);
+  line-height: var(--leading-tight);
+  color: var(--ink);
 }
 
 .land-lede {
-  font-size: 1.05rem;
-  color: var(--text-muted);
-  max-width: 560px;
-  margin: 0 auto;
-  line-height: 1.65;
+  font-size: var(--text-md);
+  color: var(--ink-muted);
+  max-width: 52ch;
+  margin: 0;
+  line-height: var(--leading-normal);
+}
+.land-lede strong { color: var(--ink); font-weight: 600; }
+
+/* ── Editorial action buttons ────────────────────────────────────────── */
+
+.land-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 var(--space-4);
 }
 
-/* ── Two-card chooser ────────────────────────────────────────────────── */
+.btn-editorial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+  padding: 0.7rem 1.35rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
 
-.land-cards {
+.btn-editorial--primary {
+  background: var(--oxblood);
+  color: var(--ink-inverse);
+  border-color: var(--oxblood);
+}
+.btn-editorial--primary:hover { background: var(--oxblood-strong); border-color: var(--oxblood-strong); }
+
+.btn-editorial--secondary {
+  background: transparent;
+  color: var(--oxblood);
+  border-color: var(--oxblood-border);
+}
+.btn-editorial--secondary:hover { background: var(--oxblood-tint); border-color: var(--oxblood); }
+
+.land-boundary {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  line-height: var(--leading-snug);
+  max-width: 56ch;
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--oxblood-border);
+}
+
+/* ── Spec panel ──────────────────────────────────────────────────────── */
+
+.land-panel {
+  background: var(--paper-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.land-panel-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-faint);
+  margin: 0 0 var(--space-4);
+}
+
+.land-panel-list { margin: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+
+.land-panel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.land-panel-row:last-child { padding-bottom: 0; border-bottom: none; }
+
+.land-panel-row dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--oxblood);
+}
+.land-panel-row dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  line-height: var(--leading-snug);
+}
+
+/* ── Two pathway cards ───────────────────────────────────────────────── */
+
+.land-pathways {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
-  margin-bottom: 3.5rem;
+  gap: var(--space-5);
+  margin-bottom: var(--space-8);
 }
 
 @media (max-width: 800px) {
-  .land-cards { grid-template-columns: 1fr; }
-  .land-h1 { font-size: 1.9rem; }
+  .land-pathways { grid-template-columns: 1fr; }
 }
 
 .land-card {
   display: flex;
   flex-direction: column;
   text-decoration: none;
-  color: var(--text);
-  background: var(--surface);
+  color: var(--ink);
+  background: var(--paper-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2rem;
-  transition: background 0.18s, border-color 0.18s, transform 0.15s;
-  position: relative;
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  transition: border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .land-card:hover {
-  background: var(--surface-hover);
-  border-color: var(--accent-border);
+  border-color: var(--oxblood-border);
   transform: translateY(-2px);
+  box-shadow: var(--shadow);
 }
 
-.land-card-icon {
-  font-size: 1.6rem;
-  color: var(--accent);
-  margin-bottom: 1.25rem;
-  line-height: 1;
-}
-
-.land-card-body {
-  flex: 1;
-}
+.land-card-body { flex: 1; }
 
 .land-card-title {
-  font-family: var(--font-serif);
-  font-size: 1.35rem;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: 600;
-  letter-spacing: -0.012em;
-  margin: 0 0 0.65rem;
-  color: var(--text);
+  letter-spacing: var(--tracking-tight);
+  margin: 0 0 var(--space-3);
+  color: var(--ink);
 }
 
 .land-card-desc {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  line-height: 1.65;
-  margin: 0 0 1.25rem;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-4);
 }
 
 .land-card-tags {
   list-style: none;
   padding: 0;
-  margin: 0 0 1.75rem;
+  margin: 0 0 var(--space-5);
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
 
 .land-card-tags li {
-  background: var(--accent-dim);
-  border: 1px solid var(--accent-border);
-  border-radius: 100px;
-  padding: 0.2rem 0.6rem;
-  font-size: 0.72rem;
-  color: var(--accent);
+  background: var(--oxblood-tint);
+  border: 1px solid var(--oxblood-border);
+  border-radius: var(--radius-pill);
+  padding: 0.2rem 0.65rem;
+  font-size: var(--text-xs);
+  color: var(--oxblood);
   letter-spacing: 0.02em;
 }
 
 .land-card-cta {
   display: inline-block;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--accent);
-  transition: color 0.15s;
+  color: var(--oxblood);
+  transition: color var(--transition-fast);
 }
+.land-card:hover .land-card-cta { color: var(--oxblood-strong); }
 
-.land-card:hover .land-card-cta {
-  color: var(--accent-strong);
-}
-
-/* ── Pipeline stack ──────────────────────────────────────────────────── */
+/* ── Architecture / how it works ─────────────────────────────────────── */
 
 .land-stack {
   border-top: 1px solid var(--border);
-  padding-top: 2.5rem;
-  margin-top: 1rem;
+  padding-top: var(--space-6);
 }
 
 .land-stack-label {
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--accent);
-  margin: 0 0 0.4rem;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-faint);
+  margin: 0 0 var(--space-2);
 }
 
 .land-stack-h2 {
-  font-family: var(--font-serif);
-  font-size: 1.55rem;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
   font-weight: 600;
-  letter-spacing: -0.018em;
-  color: var(--text);
-  margin: 0 0 1.5rem;
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink);
+  margin: 0 0 var(--space-4);
 }
 
-/* Legacy ASCII diagram styles (kept in case of fallback usage) */
-.land-diagram {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.4rem 1.2rem;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.land-diagram pre {
-  margin: 0;
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
-  font-size: 0.74rem;
-  line-height: 1.5;
-  color: var(--text-dim);
-  white-space: pre;
-}
-
-.land-diagram pre strong {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* SVG pipeline diagram (current) */
 .land-diagram-wrap {
-  margin: 0;
-  background: var(--card);
+  margin: var(--space-5) 0 0;
+  background: var(--paper-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -215,21 +274,21 @@ body {
 }
 
 .land-diagram-caption {
-  font-size: 0.82rem;
-  color: var(--text-dim);
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
   font-style: italic;
   text-align: center;
-  margin: 1rem auto 0;
+  margin: var(--space-4) auto 0;
   max-width: 640px;
-  line-height: 1.55;
+  line-height: var(--leading-snug);
 }
 
 .land-stack-caption {
-  font-size: 0.85rem;
-  color: var(--text-dim);
-  margin: 1rem 0 0;
-  line-height: 1.6;
-  max-width: 640px;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  margin: var(--space-4) 0 0;
+  line-height: var(--leading-normal);
+  max-width: 70ch;
 }
 
 /* Header and footer are provided by the shared shell (components.css). */

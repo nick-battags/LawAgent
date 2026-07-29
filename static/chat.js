@@ -3,8 +3,6 @@
 
   const $ = id => document.getElementById(id);
 
-  const consentModal    = $('consentModal');
-  const consentAccept   = $('consentAccept');
   const sourcesList     = $('sourcesList');
   const sourcesEmptyHint = $('sourcesEmptyHint');
   const addSourceBtn    = $('addSourceBtn');
@@ -17,28 +15,12 @@
   const sendSpinner     = $('sendSpinner');
 
   // ── Consent ───────────────────────────────────────────────────────────────
+  // The accessible consent gate lives in consent.js (loaded first); mirror its
+  // token so the X-Consent-Token headers below stay unchanged.
 
-  let consentToken = sessionStorage.getItem('lawagent_consent_token') || null;
-
-  function showModal() { consentModal.style.display = 'flex'; }
-  function hideModal() { consentModal.style.display = 'none'; }
-
-  if (consentToken) {
-    hideModal();
-  } else {
-    showModal();
-    consentAccept.addEventListener('click', async () => {
-      try {
-        const r = await fetch('/api/consent/accept', { method: 'POST' });
-        const d = await r.json();
-        consentToken = d.token || 'accepted';
-      } catch {
-        consentToken = 'accepted';
-      }
-      sessionStorage.setItem('lawagent_consent_token', consentToken);
-      hideModal();
-    });
-  }
+  let consentToken = (window.argusConsent && window.argusConsent.token) || null;
+  document.addEventListener('argus:consent', e => { consentToken = e.detail.token; });
+  document.addEventListener('argus:consent-invalid', () => { consentToken = null; });
 
   // ── Session ID ────────────────────────────────────────────────────────────
   // Persisted in sessionStorage so a reload keeps the same Supermemory container.
@@ -117,13 +99,11 @@
         }
       );
       if (!r.ok) {
-        const err = await r.json().catch(() => ({ error: r.statusText }));
-        alert(`Upload failed: ${err.error || r.statusText}`);
-      } else {
-        await loadSources();
+        throw await window.argusConsent.errorFromResponse(r, 'Upload failed');
       }
+      await loadSources();
     } catch (err) {
-      alert(`Upload error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') alert(`Upload error: ${err.message}`);
     } finally {
       addSourceBtn.disabled = false;
       addSourceBtn.textContent = '+ Add';
@@ -137,21 +117,26 @@
 
   chatForm.addEventListener('submit', async e => {
     e.preventDefault();
-    if (!consentToken) { showModal(); return; }
+    if (!consentToken) { window.argusConsent.showModal(); return; }
     const query = chatInput.value.trim();
     if (!query) return;
 
     const empty = chatThread.querySelector('.chat-empty');
     if (empty) empty.remove();
 
-    appendUserMessage(query);
+    const pendingMessage = appendUserMessage(query);
     chatInput.value = '';
     setBusy(true);
 
     try {
       await streamAnswer(query);
     } catch (err) {
-      appendError(err.message || String(err));
+      if (err.code === 'CONSENT_REQUIRED') {
+        pendingMessage.remove();
+        restoreQuery(query);
+      } else {
+        appendError(err.message || String(err));
+      }
     } finally {
       setBusy(false);
       chatInput.focus();
@@ -178,8 +163,7 @@
     });
 
     if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: r.statusText }));
-      throw new Error(err.error || r.statusText);
+      throw await window.argusConsent.errorFromResponse(r, 'Research failed');
     }
 
     const container = appendAssistantContainer();
@@ -219,6 +203,12 @@
     div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
     chatThread.appendChild(div);
     scrollBottom();
+    return div;
+  }
+
+  function restoreQuery(query) {
+    const current = chatInput.value.trim();
+    chatInput.value = current ? `${query}\n\n${chatInput.value}` : query;
   }
 
   function appendAssistantContainer() {

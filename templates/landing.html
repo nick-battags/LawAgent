@@ -29,52 +29,86 @@
 
   <main id="main" class="land-main" tabindex="-1">
 
+    <!-- ── Hero: what Argus is + the two real actions ────────────────────── -->
     <section class="land-hero">
-      <p class="land-eyebrow">M&amp;A drafting &amp; review</p>
-      <h1 class="land-h1">Two tools for M&amp;A legal work</h1>
-      <p class="land-lede">
-        Generate and redline contracts in a track-changes workspace, or research
-        drafting patterns across an 11,266-chunk M&amp;A source library &mdash;
-        powered by Cohere embeddings, Neon pgvector, and Vertex Gemini 2.5 Flash
-        on a corrective RAG pipeline.
-      </p>
+      <div class="land-hero-main">
+        <p class="land-eyebrow">Educational portfolio demonstration</p>
+        <h1 class="land-h1">Two tools for transactional M&amp;A legal work</h1>
+        <p class="land-lede">
+          Argus is a JD/MBA student&rsquo;s portfolio project: a working prototype
+          that pairs a <strong>Drafting &amp; Review Hub</strong> for generating and
+          redlining agreements with an <strong>M&amp;A Research Desk</strong> for
+          exploring drafting patterns across a curated source library.
+        </p>
+
+        <div class="land-actions">
+          <a href="/hub" class="btn-editorial btn-editorial--primary">Open Drafting &amp; Review</a>
+          <a href="/research" class="btn-editorial btn-editorial--secondary">Open the M&amp;A Research Desk</a>
+        </div>
+
+        <p class="land-boundary">
+          Use public or fictional material only. Do not submit confidential or
+          identifying information. Outputs are AI-generated, are not legal advice,
+          and require independent legal review.
+        </p>
+      </div>
+
+      <!-- Compact workflow panel — a quiet spec list, not adoption metrics -->
+      <aside class="land-panel" aria-label="What's inside Argus">
+        <p class="land-panel-label">What&rsquo;s inside</p>
+        <dl class="land-panel-list">
+          <div class="land-panel-row">
+            <dt>Intake modes</dt>
+            <dd>Generate &middot; Revise &middot; Review</dd>
+          </div>
+          <div class="land-panel-row">
+            <dt>Export artifacts</dt>
+            <dd>redline.docx &middot; clean.docx &middot; memo.docx &middot; register.json</dd>
+          </div>
+          <div class="land-panel-row">
+            <dt>Research library</dt>
+            <dd>11,266 indexed passages of M&amp;A playbook and public agreement material</dd>
+          </div>
+        </dl>
+      </aside>
     </section>
 
-    <section class="land-cards">
+    <!-- ── Two pathway summaries ─────────────────────────────────────────── -->
+    <section class="land-pathways" aria-label="Workflows">
 
       <a href="/hub" class="land-card" aria-label="Open Drafting and Review Hub">
-        <div class="land-card-icon" aria-hidden="true">&#9636;</div>
         <div class="land-card-body">
           <h2 class="land-card-title">Drafting &amp; Review Hub</h2>
           <p class="land-card-desc">
-            Generate a first draft from a prompt, revise your own draft, or review
-            an existing agreement. Inline redlines, missing-clause detection, and
-            an anchored clause Q&amp;A panel in one editing workspace.
+            Generate a first draft from a prompt, revise a draft you upload, or
+            review an existing agreement. Inline redlines, missing-provision
+            review, and an anchored Clause research panel in one editing
+            workspace. Generate without a document takes a direct drafting path
+            and skips retrieval.
           </p>
           <ul class="land-card-tags">
             <li>Generate from prompt</li>
             <li>Redline &amp; revise</li>
-            <li>Missing-clause detector</li>
-            <li>Clause Q&amp;A</li>
+            <li>Missing-provision review</li>
+            <li>Clause research</li>
           </ul>
         </div>
         <span class="land-card-cta">Open Hub &#8599;</span>
       </a>
 
       <a href="/research" class="land-card" aria-label="Open the M&amp;A Research Desk">
-        <div class="land-card-icon" aria-hidden="true">&#9635;</div>
         <div class="land-card-body">
           <h2 class="land-card-title">M&amp;A Research Desk</h2>
           <p class="land-card-desc">
             Explore drafting patterns across a curated M&amp;A playbook and public
-            agreement provisions. Ask a question, add an optional session document,
-            and review the sources retrieved for each answer.
+            agreement provisions. Ask a question, add optional Session sources,
+            and review the sources retrieved for each answer, presented as
+            Retrieved sources.
           </p>
           <ul class="land-card-tags">
             <li>Streaming answers</li>
-            <li>Source citations</li>
-            <li>Session context</li>
-            <li>Upload your own doc</li>
+            <li>Retrieved sources</li>
+            <li>Session sources</li>
           </ul>
         </div>
         <span class="land-card-cta">Open Research &#8599;</span>
@@ -82,12 +116,18 @@
 
     </section>
 
+    <!-- ── How it works (architecture, below product value) ──────────────── -->
     <section class="land-stack">
-      <p class="land-stack-label">Architecture</p>
-      <h2 class="land-stack-h2">Corrective RAG pipeline</h2>
+      <p class="land-stack-label">How it works</p>
+      <h2 class="land-stack-h2">A corrective RAG pipeline</h2>
+      <p class="land-stack-caption">
+        Argus embeds queries with Cohere Embed v4, searches an 11,266-passage
+        Neon pgvector index, reranks with Cohere Rerank for the Hub, and drafts
+        and answers with Vertex Gemini 2.5 Flash.
+      </p>
       <figure class="land-diagram-wrap" aria-label="Pipeline diagram">
         <img src="/static/argus-pipeline.svg"
-             alt="Argus data flow: Research and document-backed Hub modes anonymize and retrieve context, Generate without a document takes a direct prompt path, and Gemini returns either Hub artifacts or a streamed Research answer"
+             alt="Argus data flow: Research and document-backed Hub modes attempt to remove identifying details and retrieve context, Generate without a document takes a direct prompt path, and Gemini returns either Hub artifacts or a streamed Research answer"
              class="land-diagram-svg"
              loading="lazy"/>
         <figcaption class="land-diagram-caption">
@@ -97,11 +137,13 @@
         </figcaption>
       </figure>
       <p class="land-stack-caption">
-        Research and document-backed Revise and Review workflows anonymize input
-        before retrieval. Generate without a document sends the drafting prompt
-        directly to Gemini and skips retrieval, so do not include confidential
-        or identifying information in that prompt. A second regex PII firewall
-        gates every Supermemory write.
+        Research and the document-backed Revise and Review workflows attempt to
+        remove identifying details before retrieval. This anonymization is best
+        effort: if it is unavailable or fails, the workflow may continue with the
+        original text. Generate without a document sends its drafting prompt
+        directly to Gemini and skips retrieval, so do not include confidential or
+        identifying information in any field. A separate regex PII firewall gates
+        every Supermemory write.
       </p>
     </section>
 

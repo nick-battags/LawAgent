@@ -186,6 +186,26 @@
 .status-tag--warning { color: var(--warning); border-color: rgba(181, 127, 38, 0.4); background: var(--warning-tint); }
 .status-tag--danger  { color: var(--danger);  border-color: rgba(179, 58, 58, 0.4);  background: var(--danger-tint); }
 
+/* ── Shared consent dialog ─────────────────────────────────────────────────
+   The consent gate (consent.js) toggles the modal's `hidden` attribute. The
+   page stylesheets set `.modal-backdrop { display: flex }`, which would other-
+   wise win over the UA `[hidden]` rule, so make `hidden` authoritative here.
+   This keeps the dialog closed by default (no first-paint flash) and fail-safe
+   closed if the script does not run. */
+.modal-backdrop[hidden] { display: none !important; }
+
+.modal-backdrop .modal-box .consent-error {
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(179, 58, 58, 0.4);
+  border-radius: var(--radius-sm);
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.consent-error[hidden] { display: none; }
+
 /* ── Global keyboard focus ─────────────────────────────────────────────── */
 
 :focus-visible {

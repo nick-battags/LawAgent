@@ -24,23 +24,128 @@
   letter-spacing: -0.012em;
 }
 .hub-page .intake-hero h1 {
-  font-size: clamp(2rem, 4.5vw, 2.75rem);
+  font-size: clamp(1.55rem, 2.8vw, 1.95rem);
   font-weight: 700;
   letter-spacing: -0.018em;
+  line-height: 1.12;
+}
+
+/* Cap the intake prompt height — the legacy `textarea { min-height: 480px }`
+   in styles.css would otherwise push the primary CTA below the fold. Kept
+   short enough that the CTA clears the fold at 1280x800; the field still
+   grows via resize. */
+.hub-page #promptText {
+  min-height: 74px;
+  max-height: 260px;
 }
 
 /* The page header is now the shared shell masthead (components.css). */
 
+/* ── Stable main landmark ───────────────────────────────────────────────────
+   #main wraps BOTH the intake state and the editing workspace. Neutralize the
+   generic `main { max-width; margin; padding }` rule from styles.css so the
+   full-width, full-height editing workspace is not constrained; each inner
+   state owns its own width. */
+.hub-page main.hub-main {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
 /* ── Intake ─────────────────────────────────────────────────────────────── */
 
 .hub-intake {
-  max-width: 760px;
-  margin: 3rem auto;
+  max-width: 1080px;
+  margin: 0.85rem auto 2.5rem;
   padding: 0 1.5rem;
 }
 
-.intake-hero { margin-bottom: 2.5rem; }
-.intake-hero h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+.intake-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 2.75rem;
+  align-items: start;
+}
+
+.intake-form-col { min-width: 0; }
+
+@media (max-width: 900px) {
+  .intake-grid { grid-template-columns: 1fr; gap: 1.75rem; }
+}
+
+.intake-hero { margin-bottom: 0.9rem; }
+.intake-eyebrow {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  margin: 0 0 0.6rem;
+}
+.intake-hero h1 { font-size: clamp(1.7rem, 3vw, 2.15rem); margin-bottom: 0.6rem; line-height: 1.15; }
+.intake-hero .lede { font-size: 0.98rem; color: var(--text-dim); margin: 0; max-width: 46ch; line-height: 1.6; }
+
+/* ── Explanatory rail ───────────────────────────────────────────────────── */
+
+.intake-rail {
+  background: var(--paper-raised, #FBF7EE);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  padding: 1.4rem 1.4rem 1.5rem;
+  position: sticky;
+  top: calc(var(--masthead-height, 56px) + 1.25rem);
+}
+
+@media (max-width: 900px) {
+  .intake-rail { position: static; }
+}
+
+.rail-title {
+  font-family: var(--font-serif, 'Newsreader', Georgia, serif);
+  font-size: 1.05rem;
+  margin: 0 0 1rem;
+}
+
+.rail-steps {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.rail-steps li {
+  font-size: 0.83rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding-left: 0.15rem;
+}
+.rail-steps li::marker { color: var(--accent); font-weight: 700; }
+
+.rail-note {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin: 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-subtle, var(--border));
+  color: var(--ink-faint, #6E6353);
+}
+
+/* ── Inline intake error ────────────────────────────────────────────────── */
+
+.intake-error {
+  margin: 0 0 1.25rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--danger, #B33A3A);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--danger-tint, rgba(179, 58, 58, 0.12));
+  color: var(--danger, #B33A3A);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.intake-error[hidden] { display: none; }
+
+.field-label { font-weight: 500; }
 
 .mode-tabs {
   display: flex;
@@ -48,7 +153,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
 }
 
 .mode-tab {
@@ -73,13 +178,13 @@
 
 .tab-icon { font-size: 0.8rem; opacity: 0.8; }
 
-.intake-section { margin-bottom: 1.5rem; }
+.intake-section { margin-bottom: 0.8rem; }
 
 .intake-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 @media (max-width: 600px) {
@@ -132,11 +237,23 @@ label {
 .drop-zone {
   border: 2px dashed var(--border);
   border-radius: 10px;
-  padding: 2rem;
+  padding: 0.9rem 1.1rem;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
+
+/* Compact single-row layout for the primary upload zone so Revise (upload +
+   instructions) keeps its CTA above the fold on target laptop viewports. */
+#uploadSection .drop-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+#uploadSection .drop-icon { margin-bottom: 0; font-size: 1.1rem; }
+#uploadSection .drop-inner p { margin: 0; }
 
 .drop-zone:hover, .drop-zone:focus-visible {
   border-color: var(--accent);
@@ -163,7 +280,7 @@ label {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .context-zone > summary {
@@ -240,6 +357,17 @@ button.primary.btn-sm { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
   flex-direction: column;
   height: calc(100vh - 56px);
 }
+
+.workspace-notice {
+  flex-shrink: 0;
+  padding: 0.65rem 1.5rem;
+  border-bottom: 1px solid rgba(181, 127, 38, 0.4);
+  background: var(--warning-tint);
+  color: #765417;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.workspace-notice[hidden] { display: none; }
 
 .hub-toolbar {
   display: flex;

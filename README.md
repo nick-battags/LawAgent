@@ -32,7 +32,7 @@ Each session produces four downloadable artifacts: `redline.docx` (native `<w:in
 - ~7,067 spans from the Contract Understanding Atticus Dataset (CUAD — clause-level annotations across 250+ contracts)
 - ~4,177 spans from the Merger Agreement Understanding Dataset (MAUD — question-level annotations across ~150 M&A agreements)
 
-Add a document under **Session sources** to ground the conversation in your own materials (per-session, session-scoped server-side TTL, anonymized writes only). Answers distinguish those uploads from the always-searched **Argus research library** and present the retrieved material as **Retrieved sources**.
+Add a document under **Session sources** to ground the conversation in your own materials (per-session, session-scoped server-side TTL). Argus attempts to remove identifying details before retrieval, but this is best effort and may pass the original text through, so use public or fictional material only. Answers distinguish those uploads from the always-searched **Argus research library** and present the retrieved material as **Retrieved sources**.
 
 ---
 
@@ -41,8 +41,8 @@ Add a document under **Session sources** to ground the conversation in your own 
 ```mermaid
 graph LR
   U[User query / draft / prompt] --> M{Surface and Hub mode}
-  M -->|Research, Revise, or Review| AN[Flash-Lite<br/>Anonymizer]
-  AN -->|anonymized text| E[Cohere Embed v4<br/>1024-d]
+  M -->|Research, Revise, or Review| AN[Flash-Lite Anonymizer<br/>best effort]
+  AN -->|best-effort<br/>anonymized text| E[Cohere Embed v4<br/>1024-d]
   E -->|query vector| PG[(Neon pgvector<br/>11,266 corpus chunks · HNSW)]
   PG -->|Hub top-k 12| RR[Cohere Rerank 3.5<br/>Hub only]
   PG -->|Research top-k 6| G[Vertex Gemini 2.5 Flash]
@@ -55,15 +55,18 @@ graph LR
   B --> C[clean.docx]
   B --> MEMO[memo.docx]
   B --> J[register.json]
-  H -.->|anonymized<br/>summary| SM[(Supermemory<br/>session-scoped)]
+  H -.->|best-effort anonymized<br/>summary| SM[(Supermemory<br/>session-scoped)]
 ```
 
-Research and the document-backed Revise and Review modes anonymize input before
-retrieval. Generate without a document sends its drafting prompt directly to
-Gemini and intentionally skips anonymization and corpus retrieval, so that
-prompt must not contain confidential or identifying information. The bake step
-writes anonymized summaries to Supermemory only after a post-hoc PII firewall
-re-check.
+Research and the document-backed Revise and Review modes attempt to remove
+identifying details before retrieval. This anonymization is best effort: if
+Flash-Lite is unavailable, the provider call fails, or the configured provider
+is not Vertex, the workflow may continue with the original text. Generate
+without a document sends its drafting prompt directly to Gemini and
+intentionally skips anonymization and corpus retrieval. In every mode, do not
+submit confidential or identifying information. The bake step writes
+best-effort anonymized summaries to Supermemory only after a post-hoc PII
+firewall re-check.
 
 The verified route, workflow, and data-flow constraints for the renovation are
 recorded in [docs/UI_RENOVATION.md](docs/UI_RENOVATION.md).
