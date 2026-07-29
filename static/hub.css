@@ -871,11 +871,20 @@ pre.doc-text {
 }
 
 #saveBakeBtn {
+  color: #FFFFFF;
   box-shadow: 0 3px 8px rgba(114, 47, 55, 0.22);
+}
+
+#saveBakeBtn:hover,
+#saveBakeBtn:active,
+#saveBakeBtn:disabled {
+  color: #FFFFFF;
 }
 
 #saveBakeBtn[data-state="ready"] {
   background: #5C1F26;
+  color: #FFFFFF;
+  opacity: 1;
   box-shadow: 0 3px 9px rgba(114, 47, 55, 0.28);
 }
 
