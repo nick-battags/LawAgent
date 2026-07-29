@@ -124,14 +124,19 @@
     const empty = chatThread.querySelector('.chat-empty');
     if (empty) empty.remove();
 
-    appendUserMessage(query);
+    const pendingMessage = appendUserMessage(query);
     chatInput.value = '';
     setBusy(true);
 
     try {
       await streamAnswer(query);
     } catch (err) {
-      if (err.code !== 'CONSENT_REQUIRED') appendError(err.message || String(err));
+      if (err.code === 'CONSENT_REQUIRED') {
+        pendingMessage.remove();
+        restoreQuery(query);
+      } else {
+        appendError(err.message || String(err));
+      }
     } finally {
       setBusy(false);
       chatInput.focus();
@@ -198,6 +203,12 @@
     div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
     chatThread.appendChild(div);
     scrollBottom();
+    return div;
+  }
+
+  function restoreQuery(query) {
+    const current = chatInput.value.trim();
+    chatInput.value = current ? `${query}\n\n${chatInput.value}` : query;
   }
 
   function appendAssistantContainer() {

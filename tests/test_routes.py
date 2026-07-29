@@ -160,6 +160,12 @@ def test_consent_gate_is_shared_and_manages_focus(client):
     assert "argus:consent-invalid" in research_script
     assert "argusConsent.errorFromResponse" in hub_script
     assert "argusConsent.errorFromResponse" in research_script
+    # An expired token must not strand the optimistic Research message: remove
+    # it and restore the exact query for explicit resubmission after consent.
+    assert "const pendingMessage = appendUserMessage(query)" in research_script
+    assert "pendingMessage.remove()" in research_script
+    assert "restoreQuery(query)" in research_script
+    assert "chatInput.value = current ?" in research_script
 
 
 def test_public_copy_avoids_deprecated_and_unimplemented_links(client):
