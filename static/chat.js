@@ -20,6 +20,7 @@
 
   let consentToken = (window.argusConsent && window.argusConsent.token) || null;
   document.addEventListener('argus:consent', e => { consentToken = e.detail.token; });
+  document.addEventListener('argus:consent-invalid', () => { consentToken = null; });
 
   // ── Session ID ────────────────────────────────────────────────────────────
   // Persisted in sessionStorage so a reload keeps the same Supermemory container.
@@ -98,13 +99,11 @@
         }
       );
       if (!r.ok) {
-        const err = await r.json().catch(() => ({ error: r.statusText }));
-        alert(`Upload failed: ${err.error || r.statusText}`);
-      } else {
-        await loadSources();
+        throw await window.argusConsent.errorFromResponse(r, 'Upload failed');
       }
+      await loadSources();
     } catch (err) {
-      alert(`Upload error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') alert(`Upload error: ${err.message}`);
     } finally {
       addSourceBtn.disabled = false;
       addSourceBtn.textContent = '+ Add';
@@ -132,7 +131,7 @@
     try {
       await streamAnswer(query);
     } catch (err) {
-      appendError(err.message || String(err));
+      if (err.code !== 'CONSENT_REQUIRED') appendError(err.message || String(err));
     } finally {
       setBusy(false);
       chatInput.focus();
@@ -159,8 +158,7 @@
     });
 
     if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: r.statusText }));
-      throw new Error(err.error || r.statusText);
+      throw await window.argusConsent.errorFromResponse(r, 'Research failed');
     }
 
     const container = appendAssistantContainer();

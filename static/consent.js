@@ -26,6 +26,7 @@
   var KEY = 'lawagent_consent_token';
   var modal = document.getElementById('consentModal');
   var acceptBtn = document.getElementById('consentAccept');
+  var errorEl = document.getElementById('consentError');
 
   // Pages without the consent markup get a no-op facade so page scripts can
   // call the same API unconditionally.
@@ -34,6 +35,15 @@
       get token() { return sessionStorage.getItem(KEY) || null; },
       get required() { return !this.token; },
       showModal: function () {},
+      invalidate: function () { sessionStorage.removeItem(KEY); },
+      errorFromResponse: async function (response, fallbackMessage) {
+        var data = null;
+        try { data = await response.json(); } catch { data = null; }
+        return new Error(
+          (data && (data.error || data.message)) ||
+          response.statusText || fallbackMessage || 'Request failed'
+        );
+      },
     };
     return;
   }
@@ -48,6 +58,12 @@
 
   var token = sessionStorage.getItem(KEY) || null;
   var trapping = false;
+
+  function setError(message) {
+    if (!errorEl) return;
+    errorEl.textContent = message || '';
+    errorEl.hidden = !message;
+  }
 
   function setBackgroundInert(on) {
     backgroundEls.forEach(function (el) {
@@ -118,17 +134,57 @@
     }
   }
 
+  function invalidate(message) {
+    token = null;
+    sessionStorage.removeItem(KEY);
+    document.dispatchEvent(new CustomEvent('argus:consent-invalid'));
+    setError(message || 'Your consent expired. Please confirm again to continue.');
+    openModal();
+  }
+
+  async function errorFromResponse(response, fallbackMessage) {
+    var data = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+    var message = (data && (data.error || data.message)) ||
+      response.statusText || fallbackMessage || 'Request failed';
+    var error = new Error(message);
+    var consentRequired = response.status === 403 && (
+      (data && data.code === 'CONSENT_REQUIRED') ||
+      message.toLowerCase() === 'consent required'
+    );
+    if (consentRequired) {
+      error.code = 'CONSENT_REQUIRED';
+      invalidate('Your consent expired. Please confirm again to continue.');
+    }
+    return error;
+  }
+
   acceptBtn.addEventListener('click', function () {
     acceptBtn.disabled = true;
+    setError('');
     fetch('/api/consent/accept', { method: 'POST' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Consent could not be recorded.');
+        return r.json();
+      })
       .then(function (data) {
-        token = (data && data.token) || 'accepted';
+        if (!data || !data.token) throw new Error('Consent could not be recorded.');
+        token = data.token;
         sessionStorage.setItem(KEY, token);
         acceptBtn.disabled = false;
         document.dispatchEvent(new CustomEvent('argus:consent', { detail: { token: token } }));
         closeModal();
+      })
+      .catch(function () {
+        token = null;
+        sessionStorage.removeItem(KEY);
+        acceptBtn.disabled = false;
+        setError('Consent could not be recorded. Check your connection and try again.');
+        acceptBtn.focus();
       });
   });
 
@@ -136,6 +192,8 @@
     get token() { return token || sessionStorage.getItem(KEY) || null; },
     get required() { return !this.token; },
     showModal: openModal,
+    invalidate: invalidate,
+    errorFromResponse: errorFromResponse,
   };
 
   if (token) {

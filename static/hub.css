@@ -358,6 +358,17 @@ button.primary.btn-sm { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
   height: calc(100vh - 56px);
 }
 
+.workspace-notice {
+  flex-shrink: 0;
+  padding: 0.65rem 1.5rem;
+  border-bottom: 1px solid rgba(181, 127, 38, 0.4);
+  background: var(--warning-tint);
+  color: #765417;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.workspace-notice[hidden] { display: none; }
+
 .hub-toolbar {
   display: flex;
   justify-content: space-between;

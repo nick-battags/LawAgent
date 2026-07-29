@@ -19,10 +19,12 @@
   let currentMode = 'generate';
   let currentSessionId = null;
   let currentChanges = [];
+  let pendingWorkspaceWarnings = [];
   // Consent is owned by the shared gate in consent.js (loaded first); mirror
   // its token locally so the X-Consent-Token headers below stay unchanged.
   let consentToken = (window.argusConsent && window.argusConsent.token) || null;
   document.addEventListener('argus:consent', e => { consentToken = e.detail.token; });
+  document.addEventListener('argus:consent-invalid', () => { consentToken = null; });
   let pollInterval = null;
 
   // ── DOM refs ─────────────────────────────────────────────────────────────
@@ -49,6 +51,7 @@
   const contextDropZone = $('contextDropZone');
   const contextFileList = $('contextFileList');
   const editingHub     = $('editingHub');
+  const workspaceNotice = $('workspaceNotice');
   const hubModeLabel   = $('hubModeLabel');
   const hubPostureLabel = $('hubPostureLabel');
   const docViewer      = $('docViewer');
@@ -288,6 +291,7 @@
   hubForm.addEventListener('submit', async e => {
     e.preventDefault();
     clearIntakeError();
+    pendingWorkspaceWarnings = [];
     if (!consentToken) { window.argusConsent.showModal(); return; }
 
     // Review has no prompt control. Do not let text retained from Generate or
@@ -330,9 +334,10 @@
         }
       }
       if (contextFailures.length) {
-        showIntakeError(
-          `The session started, but some context files could not be attached: ${contextFailures.join('; ')}`
-        );
+        const warning =
+          `The session started, but some context files could not be attached: ${contextFailures.join('; ')}`;
+        pendingWorkspaceWarnings.push(warning);
+        showIntakeError(warning);
       }
 
       if (sessionResult.status === 'running') {
@@ -341,7 +346,9 @@
         openEditingHub(sessionResult);
       }
     } catch (err) {
-      showIntakeError(`Submission error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') {
+        showIntakeError(`Submission error: ${err.message}`);
+      }
       submitBtn.disabled = false;
       submitLabel.hidden = false;
       submitSpinner.hidden = true;
@@ -358,8 +365,7 @@
       body: fd,
     });
     if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: r.statusText }));
-      throw new Error(err.error || r.statusText || 'Context upload failed');
+      throw await window.argusConsent.errorFromResponse(r, 'Context upload failed');
     }
   }
 
@@ -378,8 +384,7 @@
       body: fd,
     });
     if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: r.statusText }));
-      throw new Error(err.error || r.statusText);
+      throw await window.argusConsent.errorFromResponse(r, 'Submission failed');
     }
     return r.json();
   }
@@ -441,6 +446,10 @@
 
     document.querySelector('.hub-intake').style.display = 'none';
     editingHub.style.display = 'flex';
+    if (workspaceNotice) {
+      workspaceNotice.textContent = pendingWorkspaceWarnings.join(' ');
+      workspaceNotice.hidden = pendingWorkspaceWarnings.length === 0;
+    }
 
     hubModeLabel.textContent = data.mode || currentMode;
     hubPostureLabel.textContent = (data.posture || 'neutral').toUpperCase();
@@ -621,11 +630,10 @@
         headers: { 'Content-Type': 'application/json', 'X-Consent-Token': consentToken || '' },
         body: JSON.stringify(body),
       });
-      if (r.ok) {
-        change.current_action = action;
-        if (editedText !== undefined) change.current_text = editedText;
-        updateActionBadges(idx, action);
-      }
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Action failed');
+      change.current_action = action;
+      if (editedText !== undefined) change.current_text = editedText;
+      updateActionBadges(idx, action);
     } catch (err) {
       console.error('Action failed:', err);
     }
@@ -662,14 +670,11 @@
         method: 'POST',
         headers: { 'X-Consent-Token': consentToken || '' },
       });
-      if (r.ok) {
-        const data = await r.json();
-        enableDownloads(data);
-      } else {
-        alert('Bake failed. Please try again.');
-      }
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Bake failed');
+      const data = await r.json();
+      enableDownloads(data);
     } catch (err) {
-      alert(`Bake error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') alert(`Bake error: ${err.message}`);
     } finally {
       saveBakeBtn.disabled = false;
       saveBakeBtn.textContent = 'Save & download';
@@ -712,7 +717,7 @@
         }),
       });
 
-      if (!r.ok) { askAnswer.textContent = `Error: ${r.statusText}`; return; }
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Clause research failed');
 
       const ct = r.headers.get('Content-Type') || '';
       if (ct.includes('text/event-stream')) {
@@ -768,12 +773,15 @@
     if (!currentSessionId) return;
     if (!confirm('Delete this session and all artifacts? This cannot be undone.')) return;
     try {
-      await fetch(`/api/v2/hub/${currentSessionId}`, {
+      const r = await fetch(`/api/v2/hub/${currentSessionId}`, {
         method: 'DELETE',
         headers: { 'X-Consent-Token': consentToken || '' },
       });
-    } catch { /* best effort */ }
-    window.location.href = '/hub';
+      if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Delete failed');
+      window.location.href = '/hub';
+    } catch (err) {
+      if (err.code !== 'CONSENT_REQUIRED') alert(`Delete error: ${err.message}`);
+    }
   });
 
   // ── Utilities ─────────────────────────────────────────────────────────────

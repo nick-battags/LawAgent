@@ -115,16 +115,20 @@ def test_hub_review_does_not_submit_a_hidden_prompt(client):
 
 
 def test_hub_rejects_unsupported_context_files_and_surfaces_upload_failures(client):
+    hub_html = client.get("/hub").get_data(as_text=True)
     script = client.get("/static/hub.js").get_data(as_text=True)
 
     assert "SUPPORTED_DOCUMENT_EXTENSIONS = ['.pdf', '.docx']" in script
     assert "if (!isSupportedDocument(file))" in script
+    assert 'id="workspaceNotice"' in hub_html
+    assert "pendingWorkspaceWarnings.push(warning)" in script
+    assert "workspaceNotice.textContent = pendingWorkspaceWarnings.join" in script
 
     upload_context = script.split("async function uploadContext", 1)[1].split(
         "async function submitHub", 1
     )[0]
     assert "if (!r.ok)" in upload_context
-    assert "throw new Error" in upload_context
+    assert "throw await window.argusConsent.errorFromResponse" in upload_context
     assert "some context files could not be attached" in script
 
 
@@ -134,6 +138,8 @@ def test_consent_gate_is_shared_and_manages_focus(client):
 
     assert 'src="/static/consent.js"' in hub_html
     assert 'src="/static/consent.js"' in research_html
+    assert 'id="consentError"' in hub_html
+    assert 'id="consentError"' in research_html
 
     script_response = client.get("/static/consent.js")
     assert script_response.status_code == 200
@@ -141,6 +147,19 @@ def test_consent_gate_is_shared_and_manages_focus(client):
     # Focus starts inside the dialog and the background is made inert.
     assert "acceptBtn.focus" in script
     assert "inert" in script
+    # Failed issuance remains fail-closed; stale tokens are removed and the
+    # shared gate can reopen itself from API error handling.
+    assert "|| 'accepted'" not in script
+    assert "sessionStorage.removeItem(KEY)" in script
+    assert "invalidate: invalidate" in script
+    assert "errorFromResponse: errorFromResponse" in script
+
+    hub_script = client.get("/static/hub.js").get_data(as_text=True)
+    research_script = client.get("/static/chat.js").get_data(as_text=True)
+    assert "argus:consent-invalid" in hub_script
+    assert "argus:consent-invalid" in research_script
+    assert "argusConsent.errorFromResponse" in hub_script
+    assert "argusConsent.errorFromResponse" in research_script
 
 
 def test_public_copy_avoids_deprecated_and_unimplemented_links(client):
