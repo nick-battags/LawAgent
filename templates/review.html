@@ -170,14 +170,21 @@
     </div>
 
     <!-- ── Editing workspace state (shown after pipeline completes) ──────── -->
-    <div id="editingHub" class="editing-hub" style="display:none">
+    <div id="editingHub" class="editing-hub" style="display:none" tabindex="-1" aria-label="Document review workspace">
 
       <div id="workspaceNotice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
+      <div id="workspaceActionStatus" class="workspace-action-status" role="status" aria-live="polite" hidden></div>
 
       <div class="hub-toolbar">
         <div class="hub-toolbar-left">
-          <span id="hubModeLabel" class="pill"></span>
-          <span id="hubPostureLabel" class="pill"></span>
+          <div class="hub-matter-heading">
+            <p class="hub-toolbar-eyebrow">Current matter</p>
+            <div class="hub-title-row">
+              <h1 id="matterTitle">Working document</h1>
+              <span id="hubModeLabel" class="pill"></span>
+              <span id="hubPostureLabel" class="pill"></span>
+            </div>
+          </div>
         </div>
         <div class="hub-toolbar-right">
           <button id="acceptAllBtn" class="btn-sm">Accept all</button>
@@ -186,53 +193,144 @@
         </div>
       </div>
 
-      <div class="hub-panes">
+      <div class="workspace-body">
 
-        <!-- Left pane: document viewer -->
-        <div class="hub-doc-pane">
-          <div id="docViewer" class="doc-viewer"></div>
-        </div>
-
-        <!-- Right pane: tabs -->
-        <div class="hub-side-pane">
-          <div class="side-tabs" role="tablist">
-            <button class="side-tab active" data-panel="issues">Issues <span id="issuesBadge" class="badge"></span></button>
-            <button class="side-tab" data-panel="missing">Missing <span id="missingBadge" class="badge"></span></button>
-            <button class="side-tab" data-panel="ask">Ask</button>
+        <!-- Current-matter rail: navigation within this live session only.
+             It deliberately makes no durability or history claim. -->
+        <aside class="matter-rail" aria-labelledby="matterRailTitle">
+          <div class="matter-rail-intro">
+            <p class="matter-kicker">Active workspace</p>
+            <h2 id="matterRailTitle">Review map</h2>
+            <p id="matterSummary" class="matter-summary">Review proposed changes, then create the four export artifacts.</p>
           </div>
 
-          <!-- Issues panel -->
-          <div id="panelIssues" class="side-panel active">
-            <div id="issuesList" class="change-list"></div>
-          </div>
+          <nav class="matter-nav" aria-label="Current matter sections">
+            <button class="matter-nav-item active" type="button" data-workspace-target="document" aria-current="location">
+              <span>Document</span>
+              <span id="railDocumentState" class="matter-nav-meta">Open</span>
+            </button>
+            <button class="matter-nav-item" type="button" data-workspace-target="issues">
+              <span>Issues</span>
+              <span id="railIssuesCount" class="matter-nav-count">0</span>
+            </button>
+            <button class="matter-nav-item" type="button" data-workspace-target="missing">
+              <span>Missing clauses</span>
+              <span id="railMissingCount" class="matter-nav-count">0</span>
+            </button>
+            <button class="matter-nav-item" type="button" data-workspace-target="ask">
+              <span>Clause research</span>
+              <span class="matter-nav-meta">Ask</span>
+            </button>
+            <button class="matter-nav-item" type="button" data-workspace-target="exports">
+              <span>Exports</span>
+              <span class="matter-nav-meta">4 files</span>
+            </button>
+          </nav>
 
-          <!-- Missing clauses panel -->
-          <div id="panelMissing" class="side-panel">
-            <div id="missingList" class="change-list"></div>
-          </div>
-
-          <!-- Ask panel -->
-          <div id="panelAsk" class="side-panel">
-            <div class="ask-anchor">
-              <label for="anchorInput">Clause anchor <span class="muted">(e.g. § 7.4)</span></label>
-              <input type="text" id="anchorInput" placeholder="§ 7.4">
+          <section class="decision-ledger" aria-labelledby="decisionLedgerTitle">
+            <div class="decision-ledger-heading">
+              <h3 id="decisionLedgerTitle">Decision ledger</h3>
+              <span id="reviewProgressLabel">Review in progress</span>
             </div>
-            <div id="askAnswer" class="ask-answer"></div>
-            <div class="ask-input-row">
-              <textarea id="askQuestion" rows="3" placeholder="Ask about this clause..."></textarea>
-              <button id="askSubmit" class="primary btn-sm">Ask</button>
-            </div>
-          </div>
+            <dl>
+              <div>
+                <dt>Pending</dt>
+                <dd id="railPendingCount">0</dd>
+              </div>
+              <div>
+                <dt>Decided</dt>
+                <dd id="railDecidedCount">0</dd>
+              </div>
+            </dl>
+          </section>
 
+          <p class="matter-session-note">This is the current working session. Save the artifacts you need before leaving.</p>
+        </aside>
+
+        <div class="hub-panes">
+
+          <!-- Primary object: document canvas -->
+          <section class="hub-doc-pane" aria-labelledby="documentPaneTitle">
+            <header class="document-pane-header">
+              <div>
+                <p class="document-pane-kicker">Working draft</p>
+                <h2 id="documentPaneTitle">Document</h2>
+              </div>
+              <div class="document-pane-meta">
+                <span id="documentMeasure">0 words</span>
+                <span class="document-legend">
+                  <span class="legend-swatch high" aria-hidden="true"></span> High
+                  <span class="legend-swatch med" aria-hidden="true"></span> Medium
+                  <span class="legend-swatch low" aria-hidden="true"></span> Low
+                </span>
+              </div>
+            </header>
+            <div id="docViewer" class="doc-viewer" tabindex="-1"></div>
+          </section>
+
+          <!-- Review inspector -->
+          <aside class="hub-side-pane" aria-labelledby="inspectorTitle">
+            <header class="inspector-header">
+              <p class="inspector-kicker">Review inspector</p>
+              <h2 id="inspectorTitle">Decisions &amp; research</h2>
+            </header>
+            <div class="side-tabs" role="tablist" aria-label="Review inspector">
+              <button id="tabIssues" class="side-tab active" type="button" role="tab" data-panel="issues" aria-controls="panelIssues" aria-selected="true" tabindex="0">Issues <span id="issuesBadge" class="badge"></span></button>
+              <button id="tabMissing" class="side-tab" type="button" role="tab" data-panel="missing" aria-controls="panelMissing" aria-selected="false" tabindex="-1">Missing <span id="missingBadge" class="badge"></span></button>
+              <button id="tabAsk" class="side-tab" type="button" role="tab" data-panel="ask" aria-controls="panelAsk" aria-selected="false" tabindex="-1">Ask</button>
+            </div>
+
+            <!-- Issues panel -->
+            <div id="panelIssues" class="side-panel active" role="tabpanel" aria-labelledby="tabIssues">
+              <div class="panel-intro">
+                <strong>Proposed revisions</strong>
+                <span>Choose a decision for each marked passage.</span>
+              </div>
+              <div id="issuesList" class="change-list"></div>
+            </div>
+
+            <!-- Missing clauses panel -->
+            <div id="panelMissing" class="side-panel" role="tabpanel" aria-labelledby="tabMissing" hidden>
+              <div class="panel-intro">
+                <strong>Suggested provisions</strong>
+                <span>Insert, edit, or dismiss each proposal.</span>
+              </div>
+              <div id="missingList" class="change-list"></div>
+            </div>
+
+            <!-- Ask panel -->
+            <div id="panelAsk" class="side-panel" role="tabpanel" aria-labelledby="tabAsk" hidden>
+              <div class="panel-intro">
+                <strong>Clause research</strong>
+                <span>Ask about a clause in this working document.</span>
+              </div>
+              <div class="ask-anchor">
+                <label for="anchorInput">Clause anchor <span class="muted">(e.g. § 7.4)</span></label>
+                <input type="text" id="anchorInput" placeholder="§ 7.4">
+              </div>
+              <div id="askAnswer" class="ask-answer" aria-live="polite"></div>
+              <div class="ask-input-row">
+                <textarea id="askQuestion" rows="3" placeholder="Ask about this clause..."></textarea>
+                <button id="askSubmit" class="primary btn-sm">Ask</button>
+              </div>
+            </div>
+
+          </aside>
         </div>
       </div>
 
       <!-- Bottom download bar -->
-      <div class="hub-download-bar">
-        <button id="dlRedline" class="btn-download" disabled>↓ redline.docx</button>
-        <button id="dlClean" class="btn-download" disabled>↓ clean.docx</button>
-        <button id="dlMemo" class="btn-download" disabled>↓ memo.docx</button>
-        <button id="dlRegister" class="btn-download" disabled>↓ register.json</button>
+      <div id="workspaceExports" class="hub-download-bar">
+        <div class="export-bar-heading">
+          <strong>Matter exports</strong>
+          <span>Created after Save &amp; download</span>
+        </div>
+        <div class="export-actions">
+          <button id="dlRedline" class="btn-download" disabled>↓ redline.docx</button>
+          <button id="dlClean" class="btn-download" disabled>↓ clean.docx</button>
+          <button id="dlMemo" class="btn-download" disabled>↓ memo.docx</button>
+          <button id="dlRegister" class="btn-download" disabled>↓ register.json</button>
+        </div>
         <button id="deleteSession" class="btn-danger-sm">Delete now</button>
       </div>
     </div>

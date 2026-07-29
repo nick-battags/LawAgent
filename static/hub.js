@@ -20,6 +20,7 @@
   let currentSessionId = null;
   let currentChanges = [];
   let pendingWorkspaceWarnings = [];
+  let workspaceStatusTimer = null;
   // Consent is owned by the shared gate in consent.js (loaded first); mirror
   // its token locally so the X-Consent-Token headers below stay unchanged.
   let consentToken = (window.argusConsent && window.argusConsent.token) || null;
@@ -52,13 +53,24 @@
   const contextFileList = $('contextFileList');
   const editingHub     = $('editingHub');
   const workspaceNotice = $('workspaceNotice');
+  const workspaceActionStatus = $('workspaceActionStatus');
+  const matterTitle     = $('matterTitle');
+  const matterSummary   = $('matterSummary');
   const hubModeLabel   = $('hubModeLabel');
   const hubPostureLabel = $('hubPostureLabel');
   const docViewer      = $('docViewer');
+  const documentMeasure = $('documentMeasure');
   const issuesList     = $('issuesList');
   const missingList    = $('missingList');
   const issuesBadge    = $('issuesBadge');
   const missingBadge   = $('missingBadge');
+  const railIssuesCount = $('railIssuesCount');
+  const railMissingCount = $('railMissingCount');
+  const railPendingCount = $('railPendingCount');
+  const railDecidedCount = $('railDecidedCount');
+  const railDocumentState = $('railDocumentState');
+  const reviewProgressLabel = $('reviewProgressLabel');
+  const workspaceExports = $('workspaceExports');
   const askQuestion    = $('askQuestion');
   const anchorInput    = $('anchorInput');
   const askSubmit      = $('askSubmit');
@@ -451,13 +463,30 @@
       workspaceNotice.hidden = pendingWorkspaceWarnings.length === 0;
     }
 
-    hubModeLabel.textContent = data.mode || currentMode;
+    const workspaceMode = data.mode || currentMode;
+    const workspaceTitles = {
+      generate: 'Generated draft',
+      revise: 'Revision workspace',
+      review: 'Review workspace',
+    };
+    const workspaceSummaries = {
+      generate: 'Review the generated draft and proposed provisions before exporting.',
+      revise: 'Decide each proposed revision and missing provision before exporting.',
+      review: 'Record decisions on spotted issues without automatically rewriting the document.',
+    };
+    matterTitle.textContent = workspaceTitles[workspaceMode] || 'Working document';
+    matterSummary.textContent = workspaceSummaries[workspaceMode] || 'Review proposed changes, then create the four export artifacts.';
+    hubModeLabel.textContent = workspaceMode;
     hubPostureLabel.textContent = (data.posture || 'neutral').toUpperCase();
 
     currentChanges = data.changes || [];
-    renderDocViewer(data.draft_text || '', currentChanges);
+    const draftText = data.draft_text || '';
+    documentMeasure.textContent = `${countWords(draftText).toLocaleString()} words`;
+    renderDocViewer(draftText, currentChanges);
     renderIssuesPanel(currentChanges.filter(c => c.kind === 'redline'));
     renderMissingPanel(currentChanges.filter(c => c.kind === 'missing_clause'));
+    updateWorkspaceSummary();
+    editingHub.focus({ preventScroll: true });
   }
 
   function renderDocViewer(text, changes) {
@@ -470,7 +499,7 @@
         const cls = severityClass(c.severity);
         html = html.replace(
           escaped,
-          `<mark class="change-mark ${cls}" data-idx="${i}" title="${escapeAttr(c.clause_anchor)}">${escaped}</mark>`
+          `<mark class="change-mark ${cls}" data-idx="${i}" data-action="${canonicalAction(c.current_action)}" title="${escapeAttr(c.clause_anchor)}">${escaped}</mark>`
         );
       }
     });
@@ -522,21 +551,22 @@
     const card = document.createElement('div');
     card.className = `change-card severity-${change.severity || 'med'}`;
     card.dataset.idx = idx;
+    card.dataset.action = canonicalAction(change.current_action);
 
     card.innerHTML = `
       <div class="card-header">
         <span class="severity-chip ${change.severity}">${(change.severity || 'med').toUpperCase()}</span>
         <span class="card-anchor">${escapeHtml(change.clause_anchor || '')}</span>
         <span class="card-category">${(change.category || '').replace(/_/g, ' ')}</span>
-        <span class="action-badge" data-idx="${idx}">${actionLabel(change.current_action)}</span>
+        <span class="action-badge action-${canonicalAction(change.current_action)}" data-idx="${idx}" role="status">${actionLabel(change.current_action)}</span>
       </div>
       <div class="card-why"><strong>Why:</strong> ${escapeHtml(change.rationale || '')}</div>
       ${change.source_ref ? `<div class="card-source muted"><strong>Source:</strong> ${escapeHtml(change.source_ref)}</div>` : ''}
       <div class="card-proposed"><strong>Proposed:</strong> <span class="proposed-text">${escapeHtml(truncate(change.current_text || change.proposed_text || '', 300))}</span></div>
       <div class="card-actions">
-        <button class="btn-accept btn-action" data-idx="${idx}">Accept</button>
-        <button class="btn-reject btn-action" data-idx="${idx}">Reject</button>
-        <button class="btn-edit btn-action" data-idx="${idx}">Edit</button>
+        <button class="btn-accept btn-action" data-idx="${idx}" aria-pressed="${canonicalAction(change.current_action) === 'accepted'}">Accept</button>
+        <button class="btn-reject btn-action" data-idx="${idx}" aria-pressed="${canonicalAction(change.current_action) === 'rejected'}">Reject</button>
+        <button class="btn-edit btn-action" data-idx="${idx}" aria-pressed="${canonicalAction(change.current_action) === 'edited'}">Edit</button>
         <button class="btn-ask-clause btn-action" data-idx="${idx}" data-anchor="${escapeAttr(change.clause_anchor || '')}">Ask</button>
       </div>
       <div class="edit-area" style="display:none">
@@ -566,12 +596,13 @@
     const card = document.createElement('div');
     card.className = 'change-card missing-card';
     card.dataset.idx = idx;
+    card.dataset.action = canonicalAction(change.current_action);
 
     card.innerHTML = `
       <div class="card-header">
         <span class="severity-chip ${change.severity}">${(change.severity || 'med').toUpperCase()}</span>
         <span class="card-category">${(change.category || '').replace(/_/g, ' ')}</span>
-        <span class="action-badge" data-idx="${idx}">${actionLabel(change.current_action)}</span>
+        <span class="action-badge action-${canonicalAction(change.current_action)}" data-idx="${idx}" role="status">${actionLabel(change.current_action)}</span>
       </div>
       <div class="card-why"><strong>Why:</strong> ${escapeHtml(change.rationale || '')}</div>
       <details class="proposed-clause-details">
@@ -579,9 +610,9 @@
         <pre class="proposed-clause-text">${escapeHtml(change.proposed_text || '')}</pre>
       </details>
       <div class="card-actions">
-        <button class="btn-insert btn-action" data-idx="${idx}">Insert clause</button>
-        <button class="btn-edit-before btn-action" data-idx="${idx}">Edit before inserting</button>
-        <button class="btn-dismiss btn-action" data-idx="${idx}">Dismiss</button>
+        <button class="btn-insert btn-action" data-idx="${idx}" aria-pressed="${canonicalAction(change.current_action) === 'accepted'}">Insert clause</button>
+        <button class="btn-edit-before btn-action" data-idx="${idx}" aria-pressed="${canonicalAction(change.current_action) === 'edited'}">Edit before inserting</button>
+        <button class="btn-dismiss btn-action" data-idx="${idx}" aria-pressed="${canonicalAction(change.current_action) === 'dismissed'}">Dismiss</button>
       </div>
       <div class="edit-area" style="display:none">
         <textarea class="edit-textarea" data-idx="${idx}">${escapeHtml(change.proposed_text || '')}</textarea>
@@ -612,13 +643,17 @@
     if (!currentSessionId) return;
     const change = currentChanges[idx];
     if (!change) return;
+    setChangeCardBusy(idx, true);
+    showWorkspaceStatus('Saving decision…', 'pending');
 
     const changeId = change.id || change.change_id;
     if (!changeId) {
-      change.current_action = action;
+      change.current_action = canonicalAction(action);
       if (editedText !== undefined) change.current_text = editedText;
-      updateActionBadges(idx, action);
-      return;
+      updateActionBadges(idx, change.current_action);
+      setChangeCardBusy(idx, false);
+      showWorkspaceStatus('Decision saved for this working session.', 'success', true);
+      return true;
     }
 
     const body = { action };
@@ -631,32 +666,120 @@
         body: JSON.stringify(body),
       });
       if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Action failed');
-      change.current_action = action;
+      const result = await r.json();
+      change.current_action = canonicalAction(result.action || action);
       if (editedText !== undefined) change.current_text = editedText;
-      updateActionBadges(idx, action);
+      updateActionBadges(idx, change.current_action);
+      showWorkspaceStatus('Decision saved.', 'success', true);
+      return true;
     } catch (err) {
-      console.error('Action failed:', err);
+      if (err.code === 'CONSENT_REQUIRED') {
+        hideWorkspaceStatus();
+      } else {
+        showWorkspaceStatus(`Decision could not be saved: ${err.message || String(err)}`, 'error');
+      }
+      return false;
+    } finally {
+      setChangeCardBusy(idx, false);
     }
   }
 
   function updateActionBadges(idx, action) {
-    const canonical = { accept: 'accepted', reject: 'rejected', edit: 'edited', dismiss: 'dismissed' }[action] || action;
+    const canonical = canonicalAction(action);
     document.querySelectorAll(`.action-badge[data-idx="${idx}"]`).forEach(b => {
       b.textContent = actionLabel(canonical);
       b.className = `action-badge action-${canonical}`;
     });
+    document.querySelectorAll(`.change-card[data-idx="${idx}"]`).forEach(card => {
+      card.dataset.action = canonical;
+      card.querySelectorAll('[aria-pressed]').forEach(button => {
+        const pressedAction =
+          button.classList.contains('btn-accept') || button.classList.contains('btn-insert') ? 'accepted' :
+          button.classList.contains('btn-reject') ? 'rejected' :
+          button.classList.contains('btn-edit') || button.classList.contains('btn-edit-before') ? 'edited' :
+          button.classList.contains('btn-dismiss') ? 'dismissed' : '';
+        button.setAttribute('aria-pressed', String(pressedAction === canonical));
+      });
+    });
+    document.querySelectorAll(`.change-mark[data-idx="${idx}"]`).forEach(mark => {
+      mark.dataset.action = canonical;
+    });
+    updateWorkspaceSummary();
+  }
+
+  function updateWorkspaceSummary() {
+    const issueCount = currentChanges.filter(change => change.kind === 'redline').length;
+    const missingCount = currentChanges.filter(change => change.kind === 'missing_clause').length;
+    const pendingCount = currentChanges.filter(change => canonicalAction(change.current_action) === 'pending').length;
+    const decidedCount = currentChanges.length - pendingCount;
+
+    railIssuesCount.textContent = String(issueCount);
+    railMissingCount.textContent = String(missingCount);
+    railPendingCount.textContent = String(pendingCount);
+    railDecidedCount.textContent = String(decidedCount);
+
+    if (!currentChanges.length) {
+      reviewProgressLabel.textContent = 'No decisions needed';
+      railDocumentState.textContent = 'Open';
+    } else if (pendingCount) {
+      reviewProgressLabel.textContent = `${pendingCount} decision${pendingCount === 1 ? '' : 's'} remaining`;
+      railDocumentState.textContent = 'Reviewing';
+    } else {
+      reviewProgressLabel.textContent = 'Review complete';
+      railDocumentState.textContent = 'Ready';
+    }
+
+    acceptAllBtn.disabled = pendingCount === 0;
+    rejectAllBtn.disabled = pendingCount === 0;
+  }
+
+  function setChangeCardBusy(idx, busy) {
+    document.querySelectorAll(`.change-card[data-idx="${idx}"] button`).forEach(button => {
+      button.disabled = busy;
+    });
+  }
+
+  function showWorkspaceStatus(message, tone, autoHide) {
+    clearTimeout(workspaceStatusTimer);
+    workspaceActionStatus.textContent = message;
+    workspaceActionStatus.dataset.tone = tone || 'pending';
+    workspaceActionStatus.hidden = false;
+    if (autoHide) {
+      workspaceStatusTimer = setTimeout(() => {
+        if (workspaceActionStatus.textContent === message) hideWorkspaceStatus();
+      }, 2400);
+    }
+  }
+
+  function hideWorkspaceStatus() {
+    clearTimeout(workspaceStatusTimer);
+    workspaceActionStatus.hidden = true;
+    workspaceActionStatus.textContent = '';
+    delete workspaceActionStatus.dataset.tone;
   }
 
   acceptAllBtn.addEventListener('click', async () => {
+    acceptAllBtn.disabled = true;
+    rejectAllBtn.disabled = true;
+    let allSaved = true;
     for (let i = 0; i < currentChanges.length; i++) {
-      if (currentChanges[i].current_action === 'pending') await applyAction(i, 'accept');
+      if (canonicalAction(currentChanges[i].current_action) === 'pending' && !(await applyAction(i, 'accept'))) allSaved = false;
     }
+    if (allSaved) showWorkspaceStatus('All pending changes were accepted.', 'success', true);
+    else showWorkspaceStatus('Some decisions could not be saved. Review the remaining pending items.', 'error');
+    updateWorkspaceSummary();
   });
 
   rejectAllBtn.addEventListener('click', async () => {
+    acceptAllBtn.disabled = true;
+    rejectAllBtn.disabled = true;
+    let allSaved = true;
     for (let i = 0; i < currentChanges.length; i++) {
-      if (currentChanges[i].current_action === 'pending') await applyAction(i, 'reject');
+      if (canonicalAction(currentChanges[i].current_action) === 'pending' && !(await applyAction(i, 'reject'))) allSaved = false;
     }
+    if (allSaved) showWorkspaceStatus('All pending changes were rejected.', 'success', true);
+    else showWorkspaceStatus('Some decisions could not be saved. Review the remaining pending items.', 'error');
+    updateWorkspaceSummary();
   });
 
   // ── Save & bake ───────────────────────────────────────────────────────────
@@ -673,8 +796,11 @@
       if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Bake failed');
       const data = await r.json();
       enableDownloads(data);
+      showWorkspaceStatus('Four matter exports are ready to download.', 'success');
     } catch (err) {
-      if (err.code !== 'CONSENT_REQUIRED') alert(`Bake error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') {
+        showWorkspaceStatus(`Exports could not be created: ${err.message}`, 'error');
+      }
     } finally {
       saveBakeBtn.disabled = false;
       saveBakeBtn.textContent = 'Save & download';
@@ -692,9 +818,10 @@
       const url = bakeData[name];
       if (url) {
         btn.disabled = false;
-        btn.addEventListener('click', () => { window.location = `/api/v2/hub/${currentSessionId}/download/${name}`; });
+        btn.onclick = () => { window.location = `/api/v2/hub/${currentSessionId}/download/${name}`; };
       }
     });
+    workspaceExports.classList.add('exports-ready');
   }
 
   // ── Anchored chat ─────────────────────────────────────────────────────────
@@ -760,11 +887,61 @@
 
   document.querySelectorAll('.side-tab').forEach(tab => {
     tab.addEventListener('click', () => activateSideTab(tab.dataset.panel));
+    tab.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = Array.from(document.querySelectorAll('.side-tab'));
+      const currentIndex = tabs.indexOf(tab);
+      const nextIndex =
+        event.key === 'Home' ? 0 :
+        event.key === 'End' ? tabs.length - 1 :
+        event.key === 'ArrowRight' ? (currentIndex + 1) % tabs.length :
+        (currentIndex - 1 + tabs.length) % tabs.length;
+      activateSideTab(tabs[nextIndex].dataset.panel);
+      tabs[nextIndex].focus();
+    });
   });
 
   function activateSideTab(panelName) {
-    document.querySelectorAll('.side-tab').forEach(t => t.classList.toggle('active', t.dataset.panel === panelName));
-    document.querySelectorAll('.side-panel').forEach(p => p.classList.toggle('active', p.id === `panel${capitalize(panelName)}`));
+    document.querySelectorAll('.side-tab').forEach(tab => {
+      const selected = tab.dataset.panel === panelName;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelectorAll('.side-panel').forEach(panel => {
+      const selected = panel.id === `panel${capitalize(panelName)}`;
+      panel.classList.toggle('active', selected);
+      panel.hidden = !selected;
+    });
+    setMatterNavActive(panelName);
+  }
+
+  document.querySelectorAll('.matter-nav-item').forEach(button => {
+    button.addEventListener('click', () => {
+      const target = button.dataset.workspaceTarget;
+      if (['issues', 'missing', 'ask'].includes(target)) {
+        activateSideTab(target);
+        document.querySelector(`.side-tab[data-panel="${target}"]`).focus();
+      } else if (target === 'document') {
+        setMatterNavActive('document');
+        docViewer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        docViewer.focus({ preventScroll: true });
+      } else if (target === 'exports') {
+        setMatterNavActive('exports');
+        workspaceExports.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        saveBakeBtn.focus({ preventScroll: true });
+      }
+    });
+  });
+
+  function setMatterNavActive(target) {
+    document.querySelectorAll('.matter-nav-item').forEach(button => {
+      const active = button.dataset.workspaceTarget === target;
+      button.classList.toggle('active', active);
+      if (active) button.setAttribute('aria-current', 'location');
+      else button.removeAttribute('aria-current');
+    });
   }
 
   // ── Delete session ────────────────────────────────────────────────────────
@@ -803,6 +980,20 @@
     return { high: 'sev-high', med: 'sev-med', low: 'sev-low' }[sev] || 'sev-med';
   }
 
+  function canonicalAction(action) {
+    return {
+      accept: 'accepted',
+      accepted: 'accepted',
+      reject: 'rejected',
+      rejected: 'rejected',
+      edit: 'edited',
+      edited: 'edited',
+      dismiss: 'dismissed',
+      dismissed: 'dismissed',
+      pending: 'pending',
+    }[action] || 'pending';
+  }
+
   function actionLabel(action) {
     return { pending: 'Pending', accept: 'Accepted', accepted: 'Accepted',
              reject: 'Rejected', rejected: 'Rejected', edit: 'Edited', edited: 'Edited',
@@ -816,6 +1007,11 @@
   function truncate(str, n) {
     if (!str) return '';
     return str.length > n ? str.substring(0, n) + '…' : str;
+  }
+
+  function countWords(text) {
+    const trimmed = String(text || '').trim();
+    return trimmed ? trimmed.split(/\s+/).length : 0;
   }
 
   function resetSubmitLabel() {
