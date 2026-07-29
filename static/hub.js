@@ -21,6 +21,7 @@
   let currentChanges = [];
   let pendingWorkspaceWarnings = [];
   let workspaceStatusTimer = null;
+  let batchInProgress = false;
   // Consent is owned by the shared gate in consent.js (loaded first); mirror
   // its token locally so the X-Consent-Token headers below stay unchanged.
   let consentToken = (window.argusConsent && window.argusConsent.token) || null;
@@ -729,8 +730,8 @@
       railDocumentState.textContent = 'Ready';
     }
 
-    acceptAllBtn.disabled = pendingCount === 0;
-    rejectAllBtn.disabled = pendingCount === 0;
+    acceptAllBtn.disabled = batchInProgress || pendingCount === 0;
+    rejectAllBtn.disabled = batchInProgress || pendingCount === 0;
   }
 
   function setChangeCardBusy(idx, busy) {
@@ -759,27 +760,37 @@
   }
 
   acceptAllBtn.addEventListener('click', async () => {
-    acceptAllBtn.disabled = true;
-    rejectAllBtn.disabled = true;
+    if (batchInProgress) return;
+    batchInProgress = true;
+    updateWorkspaceSummary();
     let allSaved = true;
-    for (let i = 0; i < currentChanges.length; i++) {
-      if (canonicalAction(currentChanges[i].current_action) === 'pending' && !(await applyAction(i, 'accept'))) allSaved = false;
+    try {
+      for (let i = 0; i < currentChanges.length; i++) {
+        if (canonicalAction(currentChanges[i].current_action) === 'pending' && !(await applyAction(i, 'accept'))) allSaved = false;
+      }
+    } finally {
+      batchInProgress = false;
+      updateWorkspaceSummary();
     }
     if (allSaved) showWorkspaceStatus('All pending changes were accepted.', 'success', true);
     else showWorkspaceStatus('Some decisions could not be saved. Review the remaining pending items.', 'error');
-    updateWorkspaceSummary();
   });
 
   rejectAllBtn.addEventListener('click', async () => {
-    acceptAllBtn.disabled = true;
-    rejectAllBtn.disabled = true;
+    if (batchInProgress) return;
+    batchInProgress = true;
+    updateWorkspaceSummary();
     let allSaved = true;
-    for (let i = 0; i < currentChanges.length; i++) {
-      if (canonicalAction(currentChanges[i].current_action) === 'pending' && !(await applyAction(i, 'reject'))) allSaved = false;
+    try {
+      for (let i = 0; i < currentChanges.length; i++) {
+        if (canonicalAction(currentChanges[i].current_action) === 'pending' && !(await applyAction(i, 'reject'))) allSaved = false;
+      }
+    } finally {
+      batchInProgress = false;
+      updateWorkspaceSummary();
     }
     if (allSaved) showWorkspaceStatus('All pending changes were rejected.', 'success', true);
     else showWorkspaceStatus('Some decisions could not be saved. Review the remaining pending items.', 'error');
-    updateWorkspaceSummary();
   });
 
   // ── Save & bake ───────────────────────────────────────────────────────────

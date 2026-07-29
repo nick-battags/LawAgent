@@ -176,6 +176,11 @@ def test_hub_workspace_tracks_reversible_decisions_and_accessible_tabs(client):
     assert "Decision could not be saved:" in script
     assert "Some decisions could not be saved." in script
     assert "Exports could not be created:" in script
+    assert "let batchInProgress = false" in script
+    assert "if (batchInProgress) return" in script
+    assert "acceptAllBtn.disabled = batchInProgress || pendingCount === 0" in script
+    assert "rejectAllBtn.disabled = batchInProgress || pendingCount === 0" in script
+    assert "batchInProgress = false" in script
 
 
 def test_consent_gate_is_shared_and_manages_focus(client):
