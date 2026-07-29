@@ -4,21 +4,30 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Argus | M&A Drafting &amp; Review</title>
+  <meta name="description" content="Argus is an educational portfolio demonstration by a JD/MBA student: a Drafting &amp; Review Hub and an M&amp;A Research Desk for exploring transactional drafting patterns. Not legal advice.">
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/components.css">
   <link rel="stylesheet" href="/static/landing.css">
 </head>
 <body>
 
-  <header class="land-header">
-    <nav class="land-nav">
-      <div class="land-nav-left">
-        <a href="https://nickvbattaglia.com" class="land-back" rel="noopener">&larr; Nick Battaglia</a>
-        <span class="land-brand">Argus</span>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="masthead-brand">
+        <a href="https://nickvbattaglia.com" class="masthead-back" rel="noopener">&larr; Nick Battaglia</a>
+        <a href="/" class="masthead-logo">Argus</a>
+        <span class="masthead-status" title="Educational portfolio demonstration">Portfolio demo</span>
       </div>
-      <span class="land-pill">Portfolio Demo</span>
-    </nav>
+      <nav class="masthead-nav" aria-label="Primary">
+        <a href="/hub" class="masthead-link">Drafting &amp; Review</a>
+        <a href="/research" class="masthead-link">Research</a>
+      </nav>
+    </div>
   </header>
 
-  <main class="land-main">
+  <main id="main" class="land-main" tabindex="-1">
 
     <section class="land-hero">
       <p class="land-eyebrow">M&amp;A drafting &amp; review</p>
@@ -98,8 +107,10 @@
 
   </main>
 
-  <footer class="land-footer">
-    <p>Portfolio demonstration &mdash; not legal advice. Do not enter confidential client information.</p>
+  <footer class="shell-footer">
+    <div class="shell-footer-inner">
+      <p class="shell-disclaimer">Portfolio demonstration &mdash; not legal advice. Do not enter confidential client information.</p>
+    </div>
   </footer>
 
 </body>

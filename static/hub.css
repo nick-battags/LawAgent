@@ -29,17 +29,7 @@
   letter-spacing: -0.018em;
 }
 
-.hub-header {
-  border-bottom: 1px solid var(--border);
-  padding: 0 2rem;
-}
-
-.hub-header nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-}
+/* The page header is now the shared shell masthead (components.css). */
 
 /* ── Intake ─────────────────────────────────────────────────────────────── */
 
@@ -148,11 +138,13 @@ label {
   transition: border-color 0.15s, background 0.15s;
 }
 
-.drop-zone:hover, .drop-zone:focus {
+.drop-zone:hover, .drop-zone:focus-visible {
   border-color: var(--accent);
   background: var(--accent-dim);
-  outline: none;
 }
+/* Keyboard focus keeps the shared strong :focus-visible ring (components.css);
+   a plain mouse :focus gets no lingering outline. */
+.drop-zone:focus:not(:focus-visible) { outline: none; }
 
 .drop-zone.drag-over {
   border-color: var(--accent);

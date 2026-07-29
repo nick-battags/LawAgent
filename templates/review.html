@@ -4,10 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Argus | Drafting &amp; Review Hub</title>
+  <meta name="description" content="Drafting &amp; Review Hub — generate a first draft, revise your own draft, or review an existing agreement with inline redlines and clause research. Educational portfolio demonstration; not legal advice.">
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/components.css">
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="stylesheet" href="/static/hub.css">
 </head>
 <body class="hub-page">
+
+  <a class="skip-link" href="#main">Skip to content</a>
 
   <!-- Consent modal (shown first visit when DEMO_MODE=true) -->
   <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
@@ -26,20 +31,21 @@
     </div>
   </div>
 
-  <header class="hub-header">
-    <nav>
-      <div class="brand-group">
-        <a href="https://nickvbattaglia.com" class="nav-back" rel="noopener">&larr; Nick Battaglia</a>
-        <a href="/" class="brand">Argus</a>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="masthead-brand">
+        <a href="https://nickvbattaglia.com" class="masthead-back" rel="noopener">&larr; Nick Battaglia</a>
+        <a href="/" class="masthead-logo">Argus</a>
+        <span class="masthead-status" title="Educational portfolio demonstration">Portfolio demo</span>
       </div>
-      <div class="nav-right">
-        <a href="/research" class="pill nav-link">Research &#8599;</a>
-        <span class="pill">Drafting &amp; Review Hub</span>
-      </div>
-    </nav>
+      <nav class="masthead-nav" aria-label="Primary">
+        <a href="/hub" class="masthead-link" aria-current="page">Drafting &amp; Review</a>
+        <a href="/research" class="masthead-link">Research</a>
+      </nav>
+    </div>
   </header>
 
-  <main class="hub-intake">
+  <main id="main" class="hub-intake" tabindex="-1">
     <div class="intake-hero">
       <h1>Drafting &amp; Review Hub</h1>
       <p class="lede">Generate a contract from a prompt, revise your draft, or review an existing agreement — all in one Editing Hub.</p>
@@ -132,7 +138,7 @@
           <span id="submitLabel">Generate first draft</span>
           <span id="submitSpinner" class="spinner" hidden></span>
         </button>
-        <p class="disclaimer">Argus demo &mdash; not legal advice. Do not enter confidential client information.</p>
+        <p class="disclaimer shell-disclaimer">Portfolio demonstration &mdash; not legal advice. Do not enter confidential client information.</p>
       </div>
     </form>
   </main>
