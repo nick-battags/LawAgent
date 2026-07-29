@@ -132,6 +132,62 @@ def test_hub_rejects_unsupported_context_files_and_surfaces_upload_failures(clie
     assert "some context files could not be attached" in script
 
 
+def test_hub_workspace_is_document_first_without_claiming_saved_matters(client):
+    html = client.get("/hub").get_data(as_text=True)
+
+    for required_id in (
+        "editingHub",
+        "workspaceActionStatus",
+        "matterRailTitle",
+        "matterTitle",
+        "docViewer",
+        "inspectorTitle",
+        "issuesList",
+        "missingList",
+        "askQuestion",
+        "workspaceExports",
+    ):
+        assert f'id="{required_id}"' in html
+
+    for target in ("document", "issues", "missing", "ask", "exports"):
+        assert f'data-workspace-target="{target}"' in html
+
+    assert 'aria-label="Document review workspace"' in html
+    assert 'aria-label="Review inspector"' in html
+    assert "saved matters" not in html.lower()
+    assert "resume this matter" not in html.lower()
+
+    for artifact_name in ("redline.docx", "clean.docx", "memo.docx", "register.json"):
+        assert html.count(artifact_name) == 1
+
+
+def test_hub_workspace_tracks_reversible_decisions_and_accessible_tabs(client):
+    script = client.get("/static/hub.js").get_data(as_text=True)
+
+    assert "function canonicalAction(action)" in script
+    assert "change.current_action = canonicalAction(result.action || action)" in script
+    assert "updateWorkspaceSummary()" in script
+    assert "railPendingCount.textContent" in script
+    assert "railDecidedCount.textContent" in script
+    assert "button.setAttribute('aria-pressed'" in script
+    assert "tab.setAttribute('aria-selected'" in script
+    assert "panel.hidden = !selected" in script
+    assert "['ArrowLeft', 'ArrowRight', 'Home', 'End']" in script
+    assert "Decision could not be saved:" in script
+    assert "Some decisions could not be saved." in script
+    assert "Exports could not be created:" in script
+    assert "let batchInProgress = false" in script
+    assert "if (batchInProgress) return" in script
+    assert "acceptAllBtn.disabled = batchInProgress || pendingCount === 0" in script
+    assert "rejectAllBtn.disabled = batchInProgress || pendingCount === 0" in script
+    assert "batchInProgress = false" in script
+    assert "acceptAllBtn.dataset.state = 'working'" in script
+    assert "rejectAllBtn.dataset.state = 'working'" in script
+    assert "saveBakeBtn.dataset.state = 'ready'" in script
+    assert "btn.dataset.state = 'downloaded'" in script
+    assert "download started" in script
+
+
 def test_consent_gate_is_shared_and_manages_focus(client):
     hub_html = client.get("/hub").get_data(as_text=True)
     research_html = client.get("/research").get_data(as_text=True)
