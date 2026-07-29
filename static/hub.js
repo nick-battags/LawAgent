@@ -19,21 +19,26 @@
   let currentMode = 'generate';
   let currentSessionId = null;
   let currentChanges = [];
-  let consentToken = sessionStorage.getItem('lawagent_consent_token') || null;
+  // Consent is owned by the shared gate in consent.js (loaded first); mirror
+  // its token locally so the X-Consent-Token headers below stay unchanged.
+  let consentToken = (window.argusConsent && window.argusConsent.token) || null;
+  document.addEventListener('argus:consent', e => { consentToken = e.detail.token; });
   let pollInterval = null;
 
   // ── DOM refs ─────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
-  const consentModal   = $('consentModal');
-  const consentAccept  = $('consentAccept');
   const hubForm        = $('hubForm');
   const modeTabs       = document.querySelectorAll('.mode-tab');
   const promptSection  = $('promptSection');
   const uploadSection  = $('uploadSection');
+  const uploadLabelText = $('uploadLabelText');
   const promptText     = $('promptText');
   const promptLabel    = $('promptLabel');
   const promptHint     = $('promptHint');
   const promptCounter  = $('promptCounter');
+  const intakeError    = $('intakeError');
+  const modeSteps      = $('modeSteps');
+  const modeNote       = $('modeNote');
   const submitBtn      = $('submitBtn');
   const submitLabel    = $('submitLabel');
   const submitSpinner  = $('submitSpinner');
@@ -64,41 +69,60 @@
   const dlRegister     = $('dlRegister');
   const deleteSession  = $('deleteSession');
 
-  // ── Consent gate ─────────────────────────────────────────────────────────
-
-  function initConsent() {
-    if (consentToken) {
-      consentModal.style.display = 'none';
-      return;
-    }
-    consentModal.style.display = 'flex';
-    consentAccept.addEventListener('click', async () => {
-      try {
-        const r = await fetch('/api/consent/accept', { method: 'POST' });
-        if (r.ok) {
-          const data = await r.json();
-          consentToken = data.token || 'accepted';
-          sessionStorage.setItem('lawagent_consent_token', consentToken);
-        } else {
-          consentToken = 'accepted';
-          sessionStorage.setItem('lawagent_consent_token', consentToken);
-        }
-      } catch {
-        consentToken = 'accepted';
-        sessionStorage.setItem('lawagent_consent_token', consentToken);
-      }
-      consentModal.style.display = 'none';
-    });
-  }
-
   // ── Mode tab switching ────────────────────────────────────────────────────
+
+  // Mode truth — copy and behavior for each intake mode. Kept honest to the
+  // pipeline: Generate skips anonymization/retrieval; Revise/Review are
+  // document-backed and attempt (best-effort) anonymization; Review does not
+  // auto-rewrite. See docs/UI_RENOVATION.md "Functional truth before polish".
+  const MODE_CONFIG = {
+    generate: {
+      submit: 'Generate first draft',
+      promptLabel: 'What contract should I draft?',
+      promptPlaceholder: 'e.g. Draft a buy-side mutual NDA for a $25M software acquisition with 18-month indemnification and 20% cap.',
+      promptHint: 'Key terms, dollar amounts, and deal structure. Use public or fictional details only.',
+      steps: [
+        'Your prompt is sent straight to the drafting model — no document anonymization or research-library retrieval runs.',
+        'A first draft opens in the editing workspace.',
+        'You review spotted issues and suggested provisions, then export.',
+      ],
+      note: 'Because Generate skips retrieval and anonymization, do not include confidential or identifying details in the prompt. Optional context is held for later clause research, not this initial draft.',
+    },
+    revise: {
+      submit: 'Revise and open workspace',
+      uploadLabel: 'Upload your draft',
+      promptLabel: 'Revision instructions',
+      promptPlaceholder: 'e.g. Make confidentiality mutual; tighten indemnification to 20%/$50K/18mo; add a Delaware forum-selection clause.',
+      promptHint: 'What changes should I make? e.g. "Make confidentiality mutual; tighten indemnification to 20%/$50K/18mo."',
+      steps: [
+        'Argus attempts to remove identifying details, then retrieves relevant playbook and library passages.',
+        'Your draft opens in the workspace with proposed redlines and suggested provisions.',
+        'Accept, reject, or edit each change, then export.',
+      ],
+      note: 'Anonymization is best effort and may pass the original text through, so use public or fictional material only.',
+    },
+    review: {
+      submit: 'Review agreement',
+      uploadLabel: 'Upload the agreement to review',
+      steps: [
+        'Argus attempts to remove identifying details, then retrieves relevant passages.',
+        'The agreement opens in the workspace with spotted issues and suggested missing provisions — Review does not rewrite the document for you.',
+        'Work through each finding, then export a memo and change register.',
+      ],
+      note: 'Anonymization is best effort and may pass the original text through, so use public or fictional material only.',
+    },
+  };
 
   function switchMode(mode) {
     currentMode = mode;
+    clearIntakeError();
+    const cfg = MODE_CONFIG[mode] || MODE_CONFIG.generate;
+
     modeTabs.forEach(t => {
       const active = t.dataset.mode === mode;
       t.classList.toggle('active', active);
       t.setAttribute('aria-selected', active ? 'true' : 'false');
+      t.tabIndex = active ? 0 : -1;   // roving tabindex
     });
 
     const needsPrompt  = mode === 'generate' || mode === 'revise';
@@ -106,25 +130,57 @@
     promptSection.style.display = needsPrompt ? '' : 'none';
     uploadSection.style.display = needsUpload ? '' : 'none';
 
-    if (mode === 'generate') {
-      promptLabel.textContent = 'What contract should I draft?';
-      promptHint.textContent  = 'Describe the contract you want generated. Add key terms, dollar amounts, and deal structure.';
-      submitLabel.textContent = 'Generate first draft';
-    } else if (mode === 'revise') {
-      promptLabel.textContent = 'Revision instructions';
-      promptHint.textContent  = 'What changes should I make? e.g. "Make confidentiality mutual; tighten indemnification to 20%/$50K/18mo."';
-      submitLabel.textContent = 'Revise & open in Hub';
-    } else {
-      submitLabel.textContent = 'Open Editing Hub';
-    }
+    if (needsPrompt && cfg.promptLabel) promptLabel.textContent = cfg.promptLabel;
+    if (needsPrompt && cfg.promptHint)  promptHint.textContent  = cfg.promptHint;
+    if (needsPrompt && cfg.promptPlaceholder && promptText) promptText.placeholder = cfg.promptPlaceholder;
+    if (needsUpload && cfg.uploadLabel && uploadLabelText) uploadLabelText.textContent = cfg.uploadLabel;
+    submitLabel.textContent = cfg.submit;
+
+    renderModeSteps(cfg);
   }
 
-  modeTabs.forEach(tab => {
+  function renderModeSteps(cfg) {
+    if (modeSteps) {
+      modeSteps.innerHTML = '';
+      (cfg.steps || []).forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        modeSteps.appendChild(li);
+      });
+    }
+    if (modeNote) modeNote.textContent = cfg.note || '';
+  }
+
+  // Click + roving keyboard (Arrow/Home/End follow the WAI-ARIA tabs pattern).
+  const modeTabList = Array.from(modeTabs);
+  modeTabs.forEach((tab, i) => {
     tab.addEventListener('click', () => switchMode(tab.dataset.mode));
     tab.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchMode(tab.dataset.mode); }
+      let next = -1;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % modeTabList.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + modeTabList.length) % modeTabList.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = modeTabList.length - 1;
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchMode(tab.dataset.mode); return; }
+      else return;
+      e.preventDefault();
+      const target = modeTabList[next];
+      switchMode(target.dataset.mode);
+      target.focus();
     });
   });
+
+  // ── Inline intake error surface (accessible, replaces alert() for intake) ──
+
+  function showIntakeError(msg) {
+    if (!intakeError) { alert(msg); return; }
+    intakeError.textContent = msg;
+    intakeError.hidden = false;
+  }
+
+  function clearIntakeError() {
+    if (intakeError) { intakeError.textContent = ''; intakeError.hidden = true; }
+  }
 
   // ── Char counter ──────────────────────────────────────────────────────────
 
@@ -200,14 +256,23 @@
 
   hubForm.addEventListener('submit', async e => {
     e.preventDefault();
-    if (!consentToken) { consentModal.style.display = 'flex'; return; }
+    clearIntakeError();
+    if (!consentToken) { window.argusConsent.showModal(); return; }
 
     const prompt = promptText ? promptText.value.trim() : '';
-    if (currentMode === 'generate' && !prompt) {
+    const hasFile = !!fileInput.files[0];
+
+    // Generate needs a prompt; Revise needs both a document and instructions;
+    // Review needs a document (its prompt is hidden).
+    if ((currentMode === 'generate' || currentMode === 'revise') && !prompt) {
+      showIntakeError(currentMode === 'generate'
+        ? 'Enter a prompt describing the contract to draft.'
+        : 'Enter the revision instructions for your draft.');
       promptText.focus();
       return;
     }
-    if ((currentMode === 'revise' || currentMode === 'review') && !fileInput.files[0]) {
+    if ((currentMode === 'revise' || currentMode === 'review') && !hasFile) {
+      showIntakeError('Upload a PDF or DOCX document to continue.');
       dropZone.focus();
       return;
     }
@@ -231,7 +296,7 @@
         openEditingHub(sessionResult);
       }
     } catch (err) {
-      alert(`Submission error: ${err.message}`);
+      showIntakeError(`Submission error: ${err.message}`);
       submitBtn.disabled = false;
       submitLabel.hidden = false;
       submitSpinner.hidden = true;
@@ -275,14 +340,13 @@
     let pollCount = 0;
     const MAX_POLLS = 120; // 120 × 2.5s = 5 minutes timeout
     const t0 = Date.now();
-    // Update the spinner label with elapsed time + stage guess so the
-    // user isn't staring at a blank spinner during the 60-120s pipeline
+    // The server only reports broad running/ready/failed status — not real
+    // stage telemetry — so show honest, mode-appropriate elapsed-time text and
+    // mark it estimated rather than inventing retrieval/drafting sub-stages.
+    const working = currentMode === 'generate' ? 'Drafting your first draft' : 'Analyzing the document';
     const updateProgress = () => {
       const sec = Math.floor((Date.now() - t0) / 1000);
-      let stage = 'Retrieving corpus & drafting…';
-      if (sec > 30) stage = 'Spotting issues & proposing missing clauses…';
-      if (sec > 90) stage = 'Finalizing changes…';
-      if (submitLabel) submitLabel.textContent = `${stage} (${sec}s)`;
+      if (submitLabel) submitLabel.textContent = `${working}… (${sec}s, estimated)`;
     };
     updateProgress();
     if (submitLabel) submitLabel.hidden = false; // show the label alongside the spinner
@@ -291,7 +355,7 @@
       updateProgress();
       if (pollCount > MAX_POLLS) {
         clearInterval(pollInterval);
-        alert('Hub processing timed out. The server may still be working — refresh to check.');
+        showIntakeError('Processing timed out. The server may still be working — refresh to check.');
         submitBtn.disabled = false;
         submitLabel.hidden = false;
         resetSubmitLabel();
@@ -308,8 +372,8 @@
           openEditingHub(data);
         } else if (data.status === 'failed' || data.status === 'error') {
           clearInterval(pollInterval);
-          const msg = data.error ? `Hub processing failed: ${data.error}` : 'Hub processing failed. Please try again.';
-          alert(msg);
+          const msg = data.error ? `Processing failed: ${data.error}` : 'Processing failed. Please try again.';
+          showIntakeError(msg);
           submitBtn.disabled = false;
           submitLabel.hidden = false;
           resetSubmitLabel();
@@ -699,12 +763,9 @@
 
   function resetSubmitLabel() {
     if (!submitLabel) return;
-    if (currentMode === 'revise') submitLabel.textContent = 'Revise & open in Hub';
-    else if (currentMode === 'review') submitLabel.textContent = 'Open Editing Hub';
-    else submitLabel.textContent = 'Generate first draft';
+    submitLabel.textContent = (MODE_CONFIG[currentMode] || MODE_CONFIG.generate).submit;
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
-  initConsent();
   switchMode('generate');
 })();

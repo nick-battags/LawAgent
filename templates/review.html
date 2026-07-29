@@ -15,7 +15,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
 
   <!-- Consent modal (shown first visit when DEMO_MODE=true) -->
-  <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+  <div id="consentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="consentTitle" hidden>
     <div class="modal-box">
       <h2 id="consentTitle">Before you begin</h2>
       <p>
@@ -45,170 +45,198 @@
     </div>
   </header>
 
-  <main id="main" class="hub-intake" tabindex="-1">
-    <div class="intake-hero">
-      <h1>Drafting &amp; Review Hub</h1>
-      <p class="lede">Generate a contract from a prompt, revise your draft, or review an existing agreement — all in one Editing Hub.</p>
-    </div>
+  <!-- Stable landmark: wraps BOTH the intake state and the editing workspace so
+       the skip link always lands on visible content and the active workspace
+       keeps a main landmark. Inner regions toggle; #main never hides. -->
+  <main id="main" class="hub-main" tabindex="-1">
 
-    <!-- Mode tabs -->
-    <div class="mode-tabs" role="tablist">
-      <button class="mode-tab active" role="tab" data-mode="generate" aria-selected="true">
-        <span class="tab-icon">✦</span> Generate
-      </button>
-      <button class="mode-tab" role="tab" data-mode="revise" aria-selected="false">
-        <span class="tab-icon">⟳</span> Revise
-      </button>
-      <button class="mode-tab" role="tab" data-mode="review" aria-selected="false">
-        <span class="tab-icon">⊘</span> Review only
-      </button>
-    </div>
+    <!-- ── Intake state ────────────────────────────────────────────────── -->
+    <div class="hub-intake">
+      <div class="intake-grid">
 
-    <form id="hubForm" novalidate>
-      <!-- Shared: posture + doc type + governing law -->
-      <div class="intake-row">
-        <div class="field-group">
-          <label for="posture">Posture</label>
-          <select id="posture" name="posture">
-            <option value="buy">Buy-side</option>
-            <option value="sell">Sell-side</option>
-            <option value="neutral" selected>Neutral</option>
-          </select>
-        </div>
-        <div class="field-group">
-          <label for="docType">Document type</label>
-          <select id="docType" name="doc_type">
-            <option value="NDA">NDA / Confidentiality Agmt.</option>
-            <option value="SPA">Stock Purchase Agreement</option>
-            <option value="APA">Asset Purchase Agreement</option>
-            <option value="Merger Agreement">Merger Agreement</option>
-            <option value="LOI">Letter of Intent</option>
-            <option value="Term Sheet">Term Sheet</option>
-          </select>
-        </div>
-        <div class="field-group">
-          <label for="governingLaw">Governing law</label>
-          <input type="text" id="governingLaw" name="governing_law" value="Delaware" placeholder="e.g. Delaware, New York">
-        </div>
-      </div>
+        <div class="intake-form-col">
+          <header class="intake-hero">
+            <p class="intake-eyebrow">Drafting &amp; Review Hub</p>
+            <h1>Draft, revise, or review a transactional agreement</h1>
+          </header>
 
-      <!-- Mode A / B: prompt textarea -->
-      <div id="promptSection" class="intake-section">
-        <label for="promptText">
-          <span id="promptLabel">What contract should I draft?</span>
-          <span class="char-counter" id="promptCounter">0 / 5000</span>
-        </label>
-        <textarea id="promptText" name="prompt" rows="5" maxlength="5000"
-          placeholder="e.g. Draft a buy-side mutual NDA for a $25M software acquisition with 18-month indemnification and 20% cap."></textarea>
-        <p class="field-hint muted" id="promptHint">Describe the contract you want generated. Add key terms, dollar amounts, and deal structure.</p>
-      </div>
-
-      <!-- Mode B / C: file upload -->
-      <div id="uploadSection" class="intake-section" style="display:none">
-        <label>Upload your draft <span class="muted">(PDF or DOCX, max 25 MB)</span></label>
-        <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="Drop file or click to browse">
-          <div class="drop-inner">
-            <span class="drop-icon">⬆</span>
-            <p>Drag &amp; drop or <span class="link-text">browse</span></p>
-            <p class="muted" id="fileStatus">No file selected</p>
+          <!-- Mode tabs (roving tabindex; Arrow/Home/End in hub.js) -->
+          <div class="mode-tabs" role="tablist" aria-label="Intake mode">
+            <button class="mode-tab active" role="tab" id="modeTabGenerate" data-mode="generate" aria-selected="true" tabindex="0">
+              <span class="tab-icon" aria-hidden="true">✦</span> Generate
+            </button>
+            <button class="mode-tab" role="tab" id="modeTabRevise" data-mode="revise" aria-selected="false" tabindex="-1">
+              <span class="tab-icon" aria-hidden="true">⟳</span> Revise
+            </button>
+            <button class="mode-tab" role="tab" id="modeTabReview" data-mode="review" aria-selected="false" tabindex="-1">
+              <span class="tab-icon" aria-hidden="true">⊘</span> Review
+            </button>
           </div>
-          <input type="file" id="fileInput" name="file" accept=".pdf,.docx" hidden>
-        </div>
-      </div>
 
-      <!-- Shared: context zone -->
-      <details class="context-zone">
-        <summary>Add deal context documents <span class="muted">(optional)</span></summary>
-        <div class="context-inner">
-          <p class="muted">Attach playbooks, prior agreements, or reference docs. They are anonymized and used only for this session.</p>
-          <div id="contextDropZone" class="drop-zone small" role="button" tabindex="0">
-            <div class="drop-inner">
-              <span class="drop-icon">⬆</span>
-              <p>Drag &amp; drop or <span class="link-text">browse</span></p>
+          <form id="hubForm" novalidate>
+            <!-- Shared: posture + doc type + governing law -->
+            <div class="intake-row">
+              <div class="field-group">
+                <label for="posture">Posture</label>
+                <select id="posture" name="posture">
+                  <option value="buy">Buy-side</option>
+                  <option value="sell">Sell-side</option>
+                  <option value="neutral" selected>Neutral</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="docType">Document type</label>
+                <select id="docType" name="doc_type">
+                  <option value="NDA">NDA / Confidentiality Agmt.</option>
+                  <option value="SPA">Stock Purchase Agreement</option>
+                  <option value="APA">Asset Purchase Agreement</option>
+                  <option value="Merger Agreement">Merger Agreement</option>
+                  <option value="LOI">Letter of Intent</option>
+                  <option value="Term Sheet">Term Sheet</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="governingLaw">Governing law</label>
+                <input type="text" id="governingLaw" name="governing_law" value="Delaware" placeholder="e.g. Delaware, New York">
+              </div>
             </div>
-            <input type="file" id="contextInput" accept=".pdf,.docx,.txt" multiple hidden>
-          </div>
-          <div id="contextFileList" class="context-file-list"></div>
-        </div>
-      </details>
 
-      <!-- Submit -->
-      <div class="intake-cta">
-        <button type="submit" id="submitBtn" class="primary large">
-          <span id="submitLabel">Generate first draft</span>
-          <span id="submitSpinner" class="spinner" hidden></span>
-        </button>
-        <p class="disclaimer shell-disclaimer">Portfolio demonstration &mdash; not legal advice. Do not enter confidential client information.</p>
+            <!-- Mode B / C: file upload -->
+            <div id="uploadSection" class="intake-section" style="display:none">
+              <label class="field-label" for="dropZone">
+                <span id="uploadLabelText">Upload the agreement</span>
+                <span class="muted">(PDF or DOCX, max 25 MB)</span>
+              </label>
+              <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="Drop file or click to browse">
+                <div class="drop-inner">
+                  <span class="drop-icon" aria-hidden="true">⬆</span>
+                  <p>Drag &amp; drop or <span class="link-text">browse</span></p>
+                  <p class="muted" id="fileStatus">No file selected</p>
+                </div>
+                <input type="file" id="fileInput" name="file" accept=".pdf,.docx" hidden>
+              </div>
+            </div>
+
+            <!-- Mode A / B: prompt textarea -->
+            <div id="promptSection" class="intake-section">
+              <label for="promptText">
+                <span id="promptLabel">What contract should I draft?</span>
+                <span class="char-counter" id="promptCounter">0 / 5000</span>
+              </label>
+              <textarea id="promptText" name="prompt" rows="5" maxlength="5000"
+                placeholder="e.g. Draft a buy-side mutual NDA for a $25M software acquisition with 18-month indemnification and 20% cap."></textarea>
+              <p class="field-hint muted" id="promptHint">Key terms, dollar amounts, and deal structure. Use public or fictional details only.</p>
+            </div>
+
+            <!-- Shared: context zone -->
+            <details class="context-zone">
+              <summary>Add deal context documents <span class="muted">(optional)</span></summary>
+              <div class="context-inner">
+                <p class="muted">Attach playbooks, prior agreements, or reference docs (PDF or DOCX). They are held for this session and used as material for later clause research — not to ground the initial run. Argus attempts to remove identifying details before retrieval, but this is best effort and may pass the original text through, so use public or fictional material only.</p>
+                <div id="contextDropZone" class="drop-zone small" role="button" tabindex="0" aria-label="Drop context files or click to browse">
+                  <div class="drop-inner">
+                    <span class="drop-icon" aria-hidden="true">⬆</span>
+                    <p>Drag &amp; drop or <span class="link-text">browse</span></p>
+                  </div>
+                  <input type="file" id="contextInput" accept=".pdf,.docx" multiple hidden>
+                </div>
+                <div id="contextFileList" class="context-file-list"></div>
+              </div>
+            </details>
+
+            <!-- Inline, accessible error surface (replaces alert() for intake) -->
+            <div id="intakeError" class="intake-error" role="alert" aria-live="assertive" hidden></div>
+
+            <!-- Submit -->
+            <div class="intake-cta">
+              <button type="submit" id="submitBtn" class="primary large">
+                <span id="submitLabel">Generate first draft</span>
+                <span id="submitSpinner" class="spinner" hidden></span>
+              </button>
+              <p class="disclaimer shell-disclaimer">Portfolio demonstration &mdash; not legal advice. Do not enter confidential or identifying information.</p>
+            </div>
+          </form>
+        </div>
+
+        <!-- Restrained explanatory rail -->
+        <aside class="intake-rail" aria-labelledby="railTitle">
+          <h2 id="railTitle" class="rail-title">What happens next</h2>
+          <ol id="modeSteps" class="rail-steps"></ol>
+          <p id="modeNote" class="rail-note muted"></p>
+        </aside>
+
       </div>
-    </form>
+    </div>
+
+    <!-- ── Editing workspace state (shown after pipeline completes) ──────── -->
+    <div id="editingHub" class="editing-hub" style="display:none">
+
+      <div class="hub-toolbar">
+        <div class="hub-toolbar-left">
+          <span id="hubModeLabel" class="pill"></span>
+          <span id="hubPostureLabel" class="pill"></span>
+        </div>
+        <div class="hub-toolbar-right">
+          <button id="acceptAllBtn" class="btn-sm">Accept all</button>
+          <button id="rejectAllBtn" class="btn-sm">Reject all</button>
+          <button id="saveBakeBtn" class="primary btn-sm">Save &amp; download</button>
+        </div>
+      </div>
+
+      <div class="hub-panes">
+
+        <!-- Left pane: document viewer -->
+        <div class="hub-doc-pane">
+          <div id="docViewer" class="doc-viewer"></div>
+        </div>
+
+        <!-- Right pane: tabs -->
+        <div class="hub-side-pane">
+          <div class="side-tabs" role="tablist">
+            <button class="side-tab active" data-panel="issues">Issues <span id="issuesBadge" class="badge"></span></button>
+            <button class="side-tab" data-panel="missing">Missing <span id="missingBadge" class="badge"></span></button>
+            <button class="side-tab" data-panel="ask">Ask</button>
+          </div>
+
+          <!-- Issues panel -->
+          <div id="panelIssues" class="side-panel active">
+            <div id="issuesList" class="change-list"></div>
+          </div>
+
+          <!-- Missing clauses panel -->
+          <div id="panelMissing" class="side-panel">
+            <div id="missingList" class="change-list"></div>
+          </div>
+
+          <!-- Ask panel -->
+          <div id="panelAsk" class="side-panel">
+            <div class="ask-anchor">
+              <label for="anchorInput">Clause anchor <span class="muted">(e.g. § 7.4)</span></label>
+              <input type="text" id="anchorInput" placeholder="§ 7.4">
+            </div>
+            <div id="askAnswer" class="ask-answer"></div>
+            <div class="ask-input-row">
+              <textarea id="askQuestion" rows="3" placeholder="Ask about this clause..."></textarea>
+              <button id="askSubmit" class="primary btn-sm">Ask</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Bottom download bar -->
+      <div class="hub-download-bar">
+        <button id="dlRedline" class="btn-download" disabled>↓ redline.docx</button>
+        <button id="dlClean" class="btn-download" disabled>↓ clean.docx</button>
+        <button id="dlMemo" class="btn-download" disabled>↓ memo.docx</button>
+        <button id="dlRegister" class="btn-download" disabled>↓ register.json</button>
+        <button id="deleteSession" class="btn-danger-sm">Delete now</button>
+      </div>
+    </div>
+
   </main>
 
-  <!-- Editing Hub (shown after pipeline completes) -->
-  <div id="editingHub" class="editing-hub" style="display:none">
-
-    <div class="hub-toolbar">
-      <div class="hub-toolbar-left">
-        <span id="hubModeLabel" class="pill"></span>
-        <span id="hubPostureLabel" class="pill"></span>
-      </div>
-      <div class="hub-toolbar-right">
-        <button id="acceptAllBtn" class="btn-sm">Accept all</button>
-        <button id="rejectAllBtn" class="btn-sm">Reject all</button>
-        <button id="saveBakeBtn" class="primary btn-sm">Save &amp; download</button>
-      </div>
-    </div>
-
-    <div class="hub-panes">
-
-      <!-- Left pane: document viewer -->
-      <div class="hub-doc-pane">
-        <div id="docViewer" class="doc-viewer"></div>
-      </div>
-
-      <!-- Right pane: tabs -->
-      <div class="hub-side-pane">
-        <div class="side-tabs" role="tablist">
-          <button class="side-tab active" data-panel="issues">Issues <span id="issuesBadge" class="badge"></span></button>
-          <button class="side-tab" data-panel="missing">Missing <span id="missingBadge" class="badge"></span></button>
-          <button class="side-tab" data-panel="ask">Ask</button>
-        </div>
-
-        <!-- Issues panel -->
-        <div id="panelIssues" class="side-panel active">
-          <div id="issuesList" class="change-list"></div>
-        </div>
-
-        <!-- Missing clauses panel -->
-        <div id="panelMissing" class="side-panel">
-          <div id="missingList" class="change-list"></div>
-        </div>
-
-        <!-- Ask panel -->
-        <div id="panelAsk" class="side-panel">
-          <div class="ask-anchor">
-            <label for="anchorInput">Clause anchor <span class="muted">(e.g. § 7.4)</span></label>
-            <input type="text" id="anchorInput" placeholder="§ 7.4">
-          </div>
-          <div id="askAnswer" class="ask-answer"></div>
-          <div class="ask-input-row">
-            <textarea id="askQuestion" rows="3" placeholder="Ask about this clause..."></textarea>
-            <button id="askSubmit" class="primary btn-sm">Ask</button>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Bottom download bar -->
-    <div class="hub-download-bar">
-      <button id="dlRedline" class="btn-download" disabled>↓ redline.docx</button>
-      <button id="dlClean" class="btn-download" disabled>↓ clean.docx</button>
-      <button id="dlMemo" class="btn-download" disabled>↓ memo.docx</button>
-      <button id="dlRegister" class="btn-download" disabled>↓ register.json</button>
-      <button id="deleteSession" class="btn-danger-sm">Delete now</button>
-    </div>
-  </div>
-
+  <script src="/static/consent.js"></script>
   <script src="/static/hub.js"></script>
 </body>
 </html>

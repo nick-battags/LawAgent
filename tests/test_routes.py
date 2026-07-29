@@ -69,6 +69,69 @@ def test_research_uses_neutral_retrieval_label(client):
     assert "Supporting sources:" not in script
 
 
+def _collapse(html: str) -> str:
+    """Collapse template whitespace/newlines so copy checks ignore wrapping."""
+    return " ".join(html.split())
+
+
+def test_landing_and_hub_describe_anonymization_as_best_effort(client):
+    landing_html = _collapse(client.get("/").get_data(as_text=True))
+    hub_html = _collapse(client.get("/hub").get_data(as_text=True))
+
+    # Best-effort framing is present on the public overview and the Hub intake.
+    assert "best effort" in landing_html
+    assert "best effort" in hub_html
+
+    # Categorical anonymization promises must not return on either surface.
+    for categorical in (
+        "anonymize input before retrieval",
+        "workflows anonymize input",
+        "are anonymized",
+        "anonymized writes only",
+    ):
+        assert categorical not in landing_html
+        assert categorical not in hub_html
+
+
+def test_public_pickers_do_not_advertise_unsupported_txt(client):
+    # scripts/hub_pipeline.extract_text() accepts only PDF/DOCX bytes, so the
+    # public context/source pickers must not advertise .txt.
+    hub_html = client.get("/hub").get_data(as_text=True)
+    research_html = client.get("/research").get_data(as_text=True)
+
+    assert 'accept=".pdf,.docx,.txt"' not in hub_html
+    assert 'accept=".pdf,.docx,.txt"' not in research_html
+    assert 'accept=".pdf,.docx"' in hub_html
+    assert 'accept=".pdf,.docx"' in research_html
+
+
+def test_consent_gate_is_shared_and_manages_focus(client):
+    hub_html = client.get("/hub").get_data(as_text=True)
+    research_html = client.get("/research").get_data(as_text=True)
+
+    assert 'src="/static/consent.js"' in hub_html
+    assert 'src="/static/consent.js"' in research_html
+
+    script_response = client.get("/static/consent.js")
+    assert script_response.status_code == 200
+    script = script_response.get_data(as_text=True)
+    # Focus starts inside the dialog and the background is made inert.
+    assert "acceptBtn.focus" in script
+    assert "inert" in script
+
+
+def test_public_copy_avoids_deprecated_and_unimplemented_links(client):
+    for path in ("/", "/hub", "/research"):
+        html = client.get(path).get_data(as_text=True)
+        assert "Ask the Corpus" not in html
+        assert "Clause Q&amp;A" not in html
+        assert 'href="/legal"' not in html
+        assert 'href="/admin"' not in html
+
+    landing_html = client.get("/").get_data(as_text=True)
+    assert "Supporting sources" not in landing_html
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [
