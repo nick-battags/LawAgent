@@ -68,6 +68,7 @@
   const dlMemo         = $('dlMemo');
   const dlRegister     = $('dlRegister');
   const deleteSession  = $('deleteSession');
+  const SUPPORTED_DOCUMENT_EXTENSIONS = ['.pdf', '.docx'];
 
   // ── Mode tab switching ────────────────────────────────────────────────────
 
@@ -195,6 +196,17 @@
 
   // ── File drop zone ────────────────────────────────────────────────────────
 
+  function isSupportedDocument(file) {
+    if (!file || !file.name) return false;
+    const name = file.name.toLowerCase();
+    return SUPPORTED_DOCUMENT_EXTENSIONS.some(ext => name.endsWith(ext));
+  }
+
+  function showUnsupportedFile(file) {
+    const name = file && file.name ? `"${file.name}"` : 'That file';
+    showIntakeError(`${name} is not supported. Upload a PDF or DOCX document.`);
+  }
+
   function setupDropZone(zone, input, statusEl) {
     zone.addEventListener('click', () => input.click());
     zone.addEventListener('keydown', e => {
@@ -206,6 +218,10 @@
       e.preventDefault();
       zone.classList.remove('drag-over');
       if (e.dataTransfer.files[0]) {
+        if (!isSupportedDocument(e.dataTransfer.files[0])) {
+          showUnsupportedFile(e.dataTransfer.files[0]);
+          return;
+        }
         const dt = new DataTransfer();
         dt.items.add(e.dataTransfer.files[0]);
         input.files = dt.files;
@@ -214,6 +230,10 @@
     });
     if (statusEl) {
       input.addEventListener('change', () => {
+        if (input.files[0] && !isSupportedDocument(input.files[0])) {
+          showUnsupportedFile(input.files[0]);
+          input.value = '';
+        }
         statusEl.textContent = input.files[0] ? input.files[0].name : 'No file selected';
       });
     }
@@ -240,11 +260,22 @@
 
   const contextFiles = [];
   function addContextFile(file) {
+    if (!isSupportedDocument(file)) {
+      showUnsupportedFile(file);
+      return;
+    }
     contextFiles.push(file);
     const item = document.createElement('div');
     item.className = 'context-file-item';
-    item.innerHTML = `<span>${file.name}</span> <button class="remove-file" aria-label="Remove ${file.name}">×</button>`;
-    item.querySelector('.remove-file').addEventListener('click', () => {
+    const filename = document.createElement('span');
+    filename.textContent = file.name;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-file';
+    removeBtn.setAttribute('aria-label', `Remove ${file.name}`);
+    removeBtn.textContent = '×';
+    item.append(filename, ' ', removeBtn);
+    removeBtn.addEventListener('click', () => {
       const idx = contextFiles.indexOf(file);
       if (idx !== -1) contextFiles.splice(idx, 1);
       item.remove();
@@ -259,7 +290,11 @@
     clearIntakeError();
     if (!consentToken) { window.argusConsent.showModal(); return; }
 
-    const prompt = promptText ? promptText.value.trim() : '';
+    // Review has no prompt control. Do not let text retained from Generate or
+    // Revise invisibly influence its retrieval query after a mode switch.
+    const prompt = currentMode === 'review'
+      ? ''
+      : (promptText ? promptText.value.trim() : '');
     const hasFile = !!fileInput.files[0];
 
     // Generate needs a prompt; Revise needs both a document and instructions;
@@ -286,8 +321,18 @@
       const sessionResult = await submitHub(currentMode, prompt);
       currentSessionId = sessionResult.session_id;
 
+      const contextFailures = [];
       for (const ctxFile of contextFiles) {
-        await uploadContext(ctxFile);
+        try {
+          await uploadContext(ctxFile);
+        } catch (err) {
+          contextFailures.push(`${ctxFile.name}: ${err.message}`);
+        }
+      }
+      if (contextFailures.length) {
+        showIntakeError(
+          `The session started, but some context files could not be attached: ${contextFailures.join('; ')}`
+        );
       }
 
       if (sessionResult.status === 'running') {
@@ -307,11 +352,15 @@
     if (!currentSessionId) return;
     const fd = new FormData();
     fd.append('file', file);
-    await fetch(`/api/v2/context/attach?session_id=${currentSessionId}`, {
+    const r = await fetch(`/api/v2/context/attach?session_id=${encodeURIComponent(currentSessionId)}`, {
       method: 'POST',
       headers: { 'X-Consent-Token': consentToken || '' },
       body: fd,
     });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ error: r.statusText }));
+      throw new Error(err.error || r.statusText || 'Context upload failed');
+    }
   }
 
   async function submitHub(mode, prompt) {
@@ -320,7 +369,7 @@
     fd.append('posture', document.getElementById('posture').value);
     fd.append('doc_type', document.getElementById('docType').value);
     fd.append('governing_law', document.getElementById('governingLaw').value);
-    if (prompt) fd.append('prompt', prompt);
+    if (mode !== 'review' && prompt) fd.append('prompt', prompt);
     if (fileInput.files[0]) fd.append('file', fileInput.files[0]);
 
     const r = await fetch(endpoint, {

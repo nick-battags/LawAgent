@@ -105,6 +105,29 @@ def test_public_pickers_do_not_advertise_unsupported_txt(client):
     assert 'accept=".pdf,.docx"' in research_html
 
 
+def test_hub_review_does_not_submit_a_hidden_prompt(client):
+    script = client.get("/static/hub.js").get_data(as_text=True)
+
+    # A prompt retained after switching from Generate/Revise must not influence
+    # Review, whose intake deliberately has no prompt control.
+    assert "const prompt = currentMode === 'review'" in script
+    assert "if (mode !== 'review' && prompt) fd.append('prompt', prompt);" in script
+
+
+def test_hub_rejects_unsupported_context_files_and_surfaces_upload_failures(client):
+    script = client.get("/static/hub.js").get_data(as_text=True)
+
+    assert "SUPPORTED_DOCUMENT_EXTENSIONS = ['.pdf', '.docx']" in script
+    assert "if (!isSupportedDocument(file))" in script
+
+    upload_context = script.split("async function uploadContext", 1)[1].split(
+        "async function submitHub", 1
+    )[0]
+    assert "if (!r.ok)" in upload_context
+    assert "throw new Error" in upload_context
+    assert "some context files could not be attached" in script
+
+
 def test_consent_gate_is_shared_and_manages_focus(client):
     hub_html = client.get("/hub").get_data(as_text=True)
     research_html = client.get("/research").get_data(as_text=True)
