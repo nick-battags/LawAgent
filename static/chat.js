@@ -3,8 +3,6 @@
 
   const $ = id => document.getElementById(id);
 
-  const consentModal    = $('consentModal');
-  const consentAccept   = $('consentAccept');
   const sourcesList     = $('sourcesList');
   const sourcesEmptyHint = $('sourcesEmptyHint');
   const addSourceBtn    = $('addSourceBtn');
@@ -17,28 +15,11 @@
   const sendSpinner     = $('sendSpinner');
 
   // ── Consent ───────────────────────────────────────────────────────────────
+  // The accessible consent gate lives in consent.js (loaded first); mirror its
+  // token so the X-Consent-Token headers below stay unchanged.
 
-  let consentToken = sessionStorage.getItem('lawagent_consent_token') || null;
-
-  function showModal() { consentModal.style.display = 'flex'; }
-  function hideModal() { consentModal.style.display = 'none'; }
-
-  if (consentToken) {
-    hideModal();
-  } else {
-    showModal();
-    consentAccept.addEventListener('click', async () => {
-      try {
-        const r = await fetch('/api/consent/accept', { method: 'POST' });
-        const d = await r.json();
-        consentToken = d.token || 'accepted';
-      } catch {
-        consentToken = 'accepted';
-      }
-      sessionStorage.setItem('lawagent_consent_token', consentToken);
-      hideModal();
-    });
-  }
+  let consentToken = (window.argusConsent && window.argusConsent.token) || null;
+  document.addEventListener('argus:consent', e => { consentToken = e.detail.token; });
 
   // ── Session ID ────────────────────────────────────────────────────────────
   // Persisted in sessionStorage so a reload keeps the same Supermemory container.
@@ -137,7 +118,7 @@
 
   chatForm.addEventListener('submit', async e => {
     e.preventDefault();
-    if (!consentToken) { showModal(); return; }
+    if (!consentToken) { window.argusConsent.showModal(); return; }
     const query = chatInput.value.trim();
     if (!query) return;
 
