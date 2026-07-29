@@ -181,6 +181,11 @@ def test_hub_workspace_tracks_reversible_decisions_and_accessible_tabs(client):
     assert "acceptAllBtn.disabled = batchInProgress || pendingCount === 0" in script
     assert "rejectAllBtn.disabled = batchInProgress || pendingCount === 0" in script
     assert "batchInProgress = false" in script
+    assert "acceptAllBtn.dataset.state = 'working'" in script
+    assert "rejectAllBtn.dataset.state = 'working'" in script
+    assert "saveBakeBtn.dataset.state = 'ready'" in script
+    assert "btn.dataset.state = 'downloaded'" in script
+    assert "download started" in script
 
 
 def test_consent_gate_is_shared_and_manages_focus(client):

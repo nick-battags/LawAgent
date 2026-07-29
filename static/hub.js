@@ -762,6 +762,9 @@
   acceptAllBtn.addEventListener('click', async () => {
     if (batchInProgress) return;
     batchInProgress = true;
+    acceptAllBtn.dataset.state = 'working';
+    acceptAllBtn.textContent = 'Accepting…';
+    delete rejectAllBtn.dataset.state;
     updateWorkspaceSummary();
     let allSaved = true;
     try {
@@ -772,6 +775,8 @@
       batchInProgress = false;
       updateWorkspaceSummary();
     }
+    acceptAllBtn.textContent = 'Accept all';
+    acceptAllBtn.dataset.state = allSaved ? 'complete' : 'error';
     if (allSaved) showWorkspaceStatus('All pending changes were accepted.', 'success', true);
     else showWorkspaceStatus('Some decisions could not be saved. Review the remaining pending items.', 'error');
   });
@@ -779,6 +784,9 @@
   rejectAllBtn.addEventListener('click', async () => {
     if (batchInProgress) return;
     batchInProgress = true;
+    rejectAllBtn.dataset.state = 'working';
+    rejectAllBtn.textContent = 'Rejecting…';
+    delete acceptAllBtn.dataset.state;
     updateWorkspaceSummary();
     let allSaved = true;
     try {
@@ -789,6 +797,8 @@
       batchInProgress = false;
       updateWorkspaceSummary();
     }
+    rejectAllBtn.textContent = 'Reject all';
+    rejectAllBtn.dataset.state = allSaved ? 'complete' : 'error';
     if (allSaved) showWorkspaceStatus('All pending changes were rejected.', 'success', true);
     else showWorkspaceStatus('Some decisions could not be saved. Review the remaining pending items.', 'error');
   });
@@ -798,6 +808,7 @@
   saveBakeBtn.addEventListener('click', async () => {
     if (!currentSessionId) return;
     saveBakeBtn.disabled = true;
+    saveBakeBtn.dataset.state = 'working';
     saveBakeBtn.textContent = 'Baking…';
     try {
       const r = await fetch(`/api/v2/hub/${currentSessionId}/bake`, {
@@ -807,8 +818,10 @@
       if (!r.ok) throw await window.argusConsent.errorFromResponse(r, 'Bake failed');
       const data = await r.json();
       enableDownloads(data);
+      saveBakeBtn.dataset.state = 'ready';
       showWorkspaceStatus('Four matter exports are ready to download.', 'success');
     } catch (err) {
+      saveBakeBtn.dataset.state = 'error';
       if (err.code !== 'CONSENT_REQUIRED') {
         showWorkspaceStatus(`Exports could not be created: ${err.message}`, 'error');
       }
@@ -829,7 +842,12 @@
       const url = bakeData[name];
       if (url) {
         btn.disabled = false;
-        btn.onclick = () => { window.location = `/api/v2/hub/${currentSessionId}/download/${name}`; };
+        btn.onclick = () => {
+          btn.dataset.state = 'downloaded';
+          btn.setAttribute('aria-label', `${name} download started`);
+          showWorkspaceStatus(`${name} download started.`, 'success', true);
+          window.location = `/api/v2/hub/${currentSessionId}/download/${name}`;
+        };
       }
     });
     workspaceExports.classList.add('exports-ready');
