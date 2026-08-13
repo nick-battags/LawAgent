@@ -14,6 +14,7 @@
   const sendBtn         = $('sendBtn');
   const sendLabel       = $('sendLabel');
   const sendSpinner     = $('sendSpinner');
+  const promptSuggestions = document.querySelectorAll('[data-research-prompt]');
 
   // ── Consent ───────────────────────────────────────────────────────────────
   // The accessible consent gate lives in consent.js (loaded first); mirror its
@@ -208,6 +209,13 @@
 
   loadSources();
 
+  promptSuggestions.forEach(button => {
+    button.addEventListener('click', () => {
+      chatInput.value = button.dataset.researchPrompt || '';
+      chatInput.focus();
+    });
+  });
+
   // ── Chat submit ───────────────────────────────────────────────────────────
 
   chatForm.addEventListener('submit', async e => {
@@ -317,8 +325,8 @@
 
   function appendError(msg) {
     const div = document.createElement('div');
-    div.className = 'msg assistant';
-    div.innerHTML = `<div class="bubble" style="color:#D97084">${escapeHtml(msg)}</div>`;
+    div.className = 'msg assistant error';
+    div.innerHTML = `<div class="bubble">${escapeHtml(msg)}</div>`;
     chatThread.appendChild(div);
     scrollBottom();
   }
@@ -336,6 +344,7 @@
     sendBtn.disabled = busy;
     sendLabel.textContent = busy ? 'Researching…' : 'Research';
     sendSpinner.hidden = !busy;
+    chatThread.setAttribute('aria-busy', String(busy));
   }
 
   function scrollBottom() {

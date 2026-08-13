@@ -856,20 +856,36 @@
   // ── Anchored chat ─────────────────────────────────────────────────────────
 
   askSubmit.addEventListener('click', submitAsk);
-  askQuestion.addEventListener('keydown', e => { if (e.key === 'Enter' && e.ctrlKey) submitAsk(); });
+  askQuestion.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault();
+      submitAsk();
+    }
+  });
 
   async function submitAsk() {
-    if (!currentSessionId || !askQuestion.value.trim()) return;
-    askAnswer.innerHTML = '<span class="typing-dots">…</span>';
+    const question = askQuestion.value.trim();
+    const clauseAnchor = anchorInput.value.trim();
+    if (!currentSessionId || !question) return;
+
+    askAnswer.querySelector('.ask-empty')?.remove();
+    appendAskMessage('user', question);
+    const assistantMessage = appendAskMessage('assistant', '');
+    const assistantBubble = assistantMessage.querySelector('.ask-bubble');
+    assistantBubble.innerHTML = '<span class="typing-dots">…</span>';
+
+    askQuestion.value = '';
     askSubmit.disabled = true;
+    askAnswer.setAttribute('aria-busy', 'true');
+    scrollAskBottom();
 
     try {
       const r = await fetch(`/api/v2/hub/${currentSessionId}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Consent-Token': consentToken || '' },
         body: JSON.stringify({
-          clause_anchor: anchorInput.value.trim(),
-          question: askQuestion.value.trim(),
+          clause_anchor: clauseAnchor,
+          question: question,
         }),
       });
 
@@ -877,16 +893,34 @@
 
       const ct = r.headers.get('Content-Type') || '';
       if (ct.includes('text/event-stream')) {
-        await streamSSE(r, askAnswer);
+        await streamSSE(r, assistantBubble);
       } else {
         const data = await r.json();
-        askAnswer.textContent = data.answer || JSON.stringify(data);
+        assistantBubble.textContent = data.answer || JSON.stringify(data);
       }
     } catch (err) {
-      askAnswer.textContent = `Error: ${err.message}`;
+      assistantMessage.classList.add('error');
+      assistantBubble.textContent = `Error: ${err.message}`;
     } finally {
       askSubmit.disabled = false;
+      askAnswer.setAttribute('aria-busy', 'false');
+      scrollAskBottom();
     }
+  }
+
+  function appendAskMessage(role, text) {
+    const message = document.createElement('div');
+    message.className = `ask-message ${role}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'ask-bubble';
+    bubble.textContent = text;
+    message.appendChild(bubble);
+    askAnswer.appendChild(message);
+    return message;
+  }
+
+  function scrollAskBottom() {
+    askAnswer.scrollTop = askAnswer.scrollHeight;
   }
 
   async function streamSSE(response, container) {
@@ -905,7 +939,10 @@
         if (line.startsWith('data: ')) {
           try {
             const payload = JSON.parse(line.slice(6));
-            if (payload.token) container.textContent += payload.token;
+            if (payload.token) {
+              container.textContent += payload.token;
+              scrollAskBottom();
+            }
           } catch { container.textContent += line.slice(6); }
         }
       }

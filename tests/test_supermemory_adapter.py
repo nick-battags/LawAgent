@@ -22,6 +22,7 @@ class DocumentsFake:
         self.list_error: Exception | None = None
         self.delete_error: Exception | None = None
         self.clear_error: Exception | None = None
+        self.clear_success = True
         self.list_calls: list[dict] = []
         self.deleted: list[str] = []
         self.bulk_deleted: list[dict] = []
@@ -44,7 +45,7 @@ class DocumentsFake:
         if self.clear_error:
             raise self.clear_error
         self.bulk_deleted.append(kwargs)
-        return SimpleNamespace(success=True)
+        return SimpleNamespace(success=self.clear_success)
 
 
 class SearchFake:
@@ -266,6 +267,14 @@ def test_clear_uses_documents_delete_bulk_by_container():
     assert client.documents.bulk_deleted == [{"container_tags": ["session-a"]}]
     assert not hasattr(client, "containers")
     assert not hasattr(client, "memories")
+
+
+def test_clear_reports_provider_bulk_delete_rejection():
+    client = ClientFake()
+    client.documents.clear_success = False
+
+    assert SupermemoryAdapter(client=client).clear_session("session-a") is False
+    assert client.documents.bulk_deleted == [{"container_tags": ["session-a"]}]
 
 
 def test_configured_timeout_and_retries_reach_client_constructor(

@@ -94,6 +94,29 @@ def test_research_session_source_statuses_and_polling_are_bounded(client):
     assert "sourceKind = c.category === 'session_context' ? 'Session' : 'Library'" in script
 
 
+def test_conversation_surfaces_keep_threads_and_composers_width_stable(client):
+    research_html = client.get("/research").get_data(as_text=True)
+    chat_css = client.get("/static/chat.css").get_data(as_text=True)
+    chat_script = client.get("/static/chat.js").get_data(as_text=True)
+    hub_html = client.get("/hub").get_data(as_text=True)
+    hub_css = client.get("/static/hub.css").get_data(as_text=True)
+    hub_script = client.get("/static/hub.js").get_data(as_text=True)
+
+    assert 'class="chat-main" aria-labelledby="researchHeading"' in research_html
+    assert 'id="chatThread" class="chat-thread" role="log"' in research_html
+    assert "grid-template-columns: 300px minmax(0, 1fr);" in chat_css
+    assert "scrollbar-gutter: stable;" in chat_css
+    assert ".chat-main" in chat_css and "min-width: 0;" in chat_css
+    assert "data-research-prompt" in research_html
+    assert "promptSuggestions.forEach" in chat_script
+
+    assert 'id="askAnswer" class="ask-answer" role="log"' in hub_html
+    assert "grid-template-rows: auto auto minmax(0, 1fr) auto auto;" in hub_css
+    assert ".ask-input-row" in hub_css and "grid-template-columns: minmax(0, 1fr) auto;" in hub_css
+    assert "appendAskMessage('user', question)" in hub_script
+    assert "appendAskMessage('assistant', '')" in hub_script
+
+
 def _collapse(html: str) -> str:
     """Collapse template whitespace/newlines so copy checks ignore wrapping."""
     return " ".join(html.split())

@@ -294,7 +294,7 @@ class SupermemoryAdapter:
         """Delete every provider document scoped to a Hub session."""
 
         def operation(client: Any) -> bool:
-            client.documents.delete_bulk(container_tags=[session_id])
-            return True
+            result = client.documents.delete_bulk(container_tags=[session_id])
+            return _field(result, "success", False) is True
 
         return self._run("clear_session", operation)
