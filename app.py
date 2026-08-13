@@ -93,11 +93,11 @@ _session_lock = threading.Lock()
 MAX_SESSIONS = 50
 MAX_SESSION_DOCS = 10
 
-# v1.1.1: Per-session "has uploaded context?" cache.
+# Per-session "has uploaded context?" cache.
 # Maps session_id -> (checked_at_epoch, has_context_bool). TTL 300s.
-# Skips redundant Supermemory recall(kind=context) calls for sessions known
-# to have zero uploads (the recruiter-clicks-through-once case = 99% of traffic).
-# Updated by /api/v2/context/list, POST /api/v2/context, DELETE /api/v2/context/<id>.
+# Skips redundant provider recall calls only for sessions whose most recent
+# successful document enumeration authoritatively found zero uploads.
+# Successful attach marks possible presence; delete invalidates for re-check.
 # Read by v2_chat.
 _SESSION_CONTEXT_CACHE: dict[str, tuple[float, bool]] = {}
 _SESSION_CONTEXT_CACHE_TTL_S = 300
@@ -110,6 +110,14 @@ def _mark_session_context_state(session_id: str, has_context: bool) -> None:
         return
     with _session_context_cache_lock:
         _SESSION_CONTEXT_CACHE[session_id] = (time.time(), has_context)
+
+
+def _invalidate_session_context_state(session_id: str) -> None:
+    """Forget cached presence so the next request checks the provider."""
+    if not session_id:
+        return
+    with _session_context_cache_lock:
+        _SESSION_CONTEXT_CACHE.pop(session_id, None)
 
 
 def _session_might_have_context(session_id: str) -> bool:
@@ -1089,15 +1097,15 @@ def v2_chat():
             store = get_demo_vector_store()
             corpus_chunks = store.query(anon_query, top_k=6)
 
-            # v1.1.1: Session-uploaded context (Supermemory kind=context)
+            # Session-uploaded context (Supermemory metadata.kind=context)
             # Skip the Supermemory call when this session is known to have no
-            # uploads (recruiter audience). Saves ~200-400ms per request.
+            # uploads from a successful document enumeration.
             session_chunks: list[dict] = []
             if session_id and _session_might_have_context(session_id):
                 try:
                     from scripts.session_memory import get_session_memory
                     mem = get_session_memory(session_id)
-                    raw = mem.recall(query=anon_query, kind="context", limit=4)
+                    raw = mem.recall_context(query=anon_query, limit=4)
                     session_chunks = [
                         {
                             "text": r.get("content", ""),
@@ -1106,8 +1114,6 @@ def v2_chat():
                         }
                         for r in raw
                     ]
-                    # Refresh the cache: if recall returned nothing, mark session empty
-                    _mark_session_context_state(session_id, has_context=bool(session_chunks))
                 except Exception as exc:
                     logger.warning("Chat session context retrieval failed: %s", exc)
 
@@ -1154,28 +1160,6 @@ def v2_chat():
             ]
             yield _sse({"citations": citations})
 
-            # v1.1.1: Persist Q&A to Supermemory (kind=chat_exchange, 24h TTL).
-            # Writes the ANONYMIZED version (anon_query + raw_answer) for parity
-            # with the Hub's anonymized-only memory store invariant.
-            if session_id and isinstance(provider, VertexProvider):
-                try:
-                    from scripts.session_memory import get_session_memory
-                    mem = get_session_memory(session_id)
-                    write_content = f"Q: {anon_query}\nA: {raw_answer}"
-                    if len(write_content) > 2000:
-                        write_content = write_content[:1997] + "..."
-                    mem.write(
-                        content=write_content,
-                        kind="chat_exchange",
-                        metadata={
-                            "anonymized": True,
-                            "surface": "ask_the_corpus",
-                            "citation_count": len(citations),
-                        },
-                    )
-                except Exception as write_exc:
-                    logger.warning("v2_chat chat_exchange write failed: %s", write_exc)
-
         except Exception as exc:
             logger.error("v2_chat error: %s", exc)
             yield _sse({"token": f"[Error: {exc}]"})
@@ -1190,47 +1174,22 @@ def v2_chat():
 
 @app.get("/api/v2/context/list")
 def v2_context_list():
-    """List session-uploaded context documents for the chat sidebar.
-
-    Uses Supermemory search filtered to kind=context for this session.
-    Returns deduped source list (multiple chunks may exist per file).
-    """
+    """Enumerate every Session source, including processing and failed ones."""
     session_id = request.args.get("session_id", "").strip()
     if not session_id:
         return jsonify({"sources": []})
     try:
         from scripts.session_memory import get_session_memory
         mem = get_session_memory(session_id)
-        client = mem._get_client()
-        response = client.search.execute(
-            q=".",
-            container_tag=session_id,
-            limit=50,
-            filters={"AND": [{"key": "kind", "value": "context"}]},
-        )
-        sources: list[dict] = []
-        for r in (response.results or []):
-            meta: dict = getattr(r, "metadata", {}) or {}
-            sources.append({
-                "id": r.document_id,
-                "filename": meta.get("source") or meta.get("title") or "Untitled",
-                "char_count": meta.get("char_count") or 0,
-            })
-        # Dedup by id — multiple chunks per upload collapse to one entry
-        seen: set = set()
-        deduped: list[dict] = []
-        for s in sources:
-            key = s["id"] or s["filename"]
-            if key not in seen:
-                seen.add(key)
-                deduped.append(s)
-        # v1.1.1: Update the per-session context cache so v2_chat can skip
-        # the Supermemory recall on subsequent requests if this session has none.
-        _mark_session_context_state(session_id, has_context=bool(deduped))
-        return jsonify({"sources": deduped, "count": len(deduped)})
-    except Exception as exc:
-        logger.warning("context list failed for session %s: %s", session_id, exc)
-        return jsonify({"sources": [], "count": 0})
+        sources = mem.list_context()
+        _mark_session_context_state(session_id, has_context=bool(sources))
+        return jsonify({"sources": sources, "count": len(sources)})
+    except Exception:
+        logger.warning("Session source list unavailable")
+        return jsonify({
+            "error": "Session sources are temporarily unavailable.",
+            "code": "SESSION_SOURCES_UNAVAILABLE",
+        }), 503
 
 
 @app.delete("/api/v2/context/<doc_id>")
@@ -1242,16 +1201,20 @@ def v2_context_delete(doc_id: str):
     try:
         from scripts.session_memory import get_session_memory
         mem = get_session_memory(session_id)
-        client = mem._get_client()
-        client.memories.forget(container_tag=session_id, id=doc_id)
-        # v1.1.1: Invalidate the cache entry — next chat request will re-check
-        # so we don't keep querying when this was the user's last doc, or skip
-        # querying if they re-uploaded.
-        _mark_session_context_state(session_id, has_context=False)
+        deleted = mem.delete_context(doc_id)
+        if not deleted:
+            return jsonify({
+                "error": "Session source not found.",
+                "code": "SESSION_SOURCE_NOT_FOUND",
+            }), 404
+        _invalidate_session_context_state(session_id)
         return jsonify({"deleted": doc_id})
-    except Exception as exc:
-        logger.warning("context delete failed for doc %s session %s: %s", doc_id, session_id, exc)
-        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        logger.warning("Session source delete unavailable")
+        return jsonify({
+            "error": "Session source could not be removed. Try again shortly.",
+            "code": "SESSION_SOURCE_DELETE_UNAVAILABLE",
+        }), 503
 
 
 # ── Demo mode guard ──────────────────────────────────────────────────────────
@@ -1532,11 +1495,15 @@ def hub_context_attach():
 
     from scripts.context_loader import attach_context
     result = attach_context(session_id, content=content, file_bytes=file_bytes, filename=filename)
-    code = 200 if result.get("status") == "ok" else 400
-    # v1.1.1: Mark cache so v2_chat will perform the Supermemory recall on
-    # subsequent requests (since this session now has uploaded context).
-    if code == 200:
+    if result.get("status") == "ok":
+        code = 200 if result.get("processing_status") == "ready" else 202
         _mark_session_context_state(session_id, has_context=True)
+    elif result.get("error_code") == "invalid_source":
+        code = 400
+    elif result.get("error_code") == "provider_unavailable":
+        code = 503
+    else:
+        code = 502
     return jsonify(result), code
 
 
@@ -1785,11 +1752,16 @@ def hub_delete(session_id: str):
         except Exception as exc:
             logger.warning("Hub delete DB failed for session %s: %s", session_id, exc)
 
+    cleanup_succeeded = False
     try:
         from scripts.session_memory import get_session_memory
-        get_session_memory(session_id).clear()
+        cleanup_succeeded = get_session_memory(session_id).clear()
     except Exception:
-        pass
+        cleanup_succeeded = False
+    if cleanup_succeeded:
+        _mark_session_context_state(session_id, has_context=False)
+    else:
+        logger.warning("Hub delete completed with Session source cleanup failure")
 
     return jsonify({"deleted": True, "session_id": session_id})
 
@@ -1854,10 +1826,14 @@ def hub_sweep():
     for sid in expired_ids:
         try:
             from scripts.session_memory import get_session_memory
-            get_session_memory(sid).clear()
-            sm_cleared += 1
-        except Exception as exc:
-            logger.warning("hub_sweep Supermemory clear failed for %s: %s", sid, exc)
+            if get_session_memory(sid).clear():
+                sm_cleared += 1
+                _mark_session_context_state(sid, has_context=False)
+            else:
+                sm_errors += 1
+                logger.warning("Hub sweep Session source cleanup failed")
+        except Exception:
+            logger.warning("Hub sweep Session source cleanup failed")
             sm_errors += 1
 
     logger.info(

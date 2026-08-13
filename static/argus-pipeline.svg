@@ -111,9 +111,9 @@
     <rect width="220" height="115" rx="8" class="data-box"/>
     <text x="14" y="24" class="tag-data">◆ DATA LAYER</text>
     <text x="14" y="46" class="box-title-data">Supermemory</text>
-    <text x="14" y="66" class="box-sub">kind = context (read)</text>
-    <text x="14" y="84" class="box-detail">User-uploaded session docs</text>
-    <text x="14" y="100" class="box-detail">(skipped if session empty)</text>
+    <text x="14" y="66" class="box-sub">Session sources · kind = context</text>
+    <text x="14" y="84" class="box-detail">Explicit user uploads only</text>
+    <text x="14" y="100" class="box-detail">ready sources recalled when relevant</text>
   </g>
   <path d="M 670 488 L 610 488" class="arrow-dashed" marker-end="url(#arrow-dashed)"/>
   <text x="639" y="478" text-anchor="middle" class="annotation-italic" font-size="10">optional</text>
@@ -187,11 +187,11 @@
 
   <g transform="translate(80, 1145)" filter="url(#shadow)">
     <rect width="240" height="100" rx="8" class="data-box"/>
-    <text x="16" y="22" class="tag-data">◆ DATA LAYER · WRITE</text>
-    <text x="16" y="46" class="box-title-data">Supermemory</text>
-    <text x="16" y="66" class="box-sub">kind = review_summary</text>
-    <text x="16" y="83" class="box-detail">regex PII-firewall screened</text>
-    <text x="16" y="96" class="box-detail">configured issue + clause caps · session-scoped</text>
+    <text x="16" y="22" class="tag-data">◆ ARTIFACT HANDOFF</text>
+    <text x="16" y="46" class="box-title-data">No memory write</text>
+    <text x="16" y="66" class="box-sub">review summary is not persisted</text>
+    <text x="16" y="83" class="box-detail">bake returns the four requested artifacts</text>
+    <text x="16" y="96" class="box-detail">Session sources remain separately removable</text>
   </g>
 
   <!-- ============================================================ -->
@@ -211,11 +211,11 @@
 
   <g transform="translate(600, 1145)" filter="url(#shadow)">
     <rect width="240" height="100" rx="8" class="data-box"/>
-    <text x="16" y="22" class="tag-data">◆ DATA LAYER · WRITE</text>
-    <text x="16" y="46" class="box-title-data">Supermemory</text>
-    <text x="16" y="66" class="box-sub">kind = chat_exchange</text>
-    <text x="16" y="83" class="box-detail">regex PII-firewall screened · research session</text>
-    <text x="16" y="96" class="box-detail">Q&amp;A pair · session-scoped</text>
+    <text x="16" y="22" class="tag-data">◆ RESPONSE COMPLETE</text>
+    <text x="16" y="46" class="box-title-data">No memory write</text>
+    <text x="16" y="66" class="box-sub">chat exchange is not persisted</text>
+    <text x="16" y="83" class="box-detail">answer and citations finish the stream</text>
+    <text x="16" y="96" class="box-detail">uploaded Session sources stay user-removable</text>
   </g>
 
   <!-- ============================================================ -->
@@ -225,7 +225,7 @@
 
   <g transform="translate(60, 1320)">
     <text x="0" y="0" class="footnote-bullet">↪</text>
-    <text x="20" y="0" class="footnote">PII firewall regex re-screens content before every Supermemory write (second defense layer)</text>
+    <text x="20" y="0" class="footnote">PII firewall regex re-screens every explicitly uploaded Session source before provider storage</text>
   </g>
   <g transform="translate(60, 1345)">
     <text x="0" y="0" class="footnote-bullet">↪</text>
@@ -233,7 +233,7 @@
   </g>
   <g transform="translate(60, 1370)">
     <text x="0" y="0" class="footnote-bullet">↪</text>
-    <text x="20" y="0" class="footnote">Per-session memory in Supermemory, scoped by session-id container tag (server-side TTL)</text>
+    <text x="20" y="0" class="footnote">Only explicitly uploaded Session sources use Supermemory; pgvector remains the shared corpus</text>
   </g>
   <g transform="translate(60, 1395)">
     <text x="0" y="0" class="footnote-bullet">↪</text>

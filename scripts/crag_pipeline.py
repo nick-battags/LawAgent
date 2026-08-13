@@ -270,8 +270,7 @@ def enhance_issue_with_llm(
 def pipeline_status() -> dict[str, Any]:
     from scripts.llm_provider import get_llm
 
-    # Report on whatever backend the demo is *actually* using
-    # (pgvector / supermemory / chromadb), not just the legacy CRAG ChromaDB.
+    # Report on the configured shared-corpus backend (pgvector or local ChromaDB).
     vector_status: dict[str, Any]
     try:
         from scripts.vector_store import get_demo_vector_store

@@ -31,15 +31,13 @@ _demo_store_lock = threading.Lock()
 def get_demo_vector_store() -> Any:
     """Return the demo-mode retrieval store.
 
-    Dispatches on VECTOR_BACKEND env var (Master Plan rev 2.4 § Locked decisions
-    and 02c_Editing_Hub.md § Pipeline lock the canonical path to pgvector):
+    Dispatches on VECTOR_BACKEND:
 
       - "pgvector"   → PgvectorCorpusStore (Cohere Embed v4 → Neon pgvector).
-                       This is the canonical demo backend per the planning docs.
-      - "supermemory" → SupermemoryCorpusStore (Supermemory native search,
-                        bypasses Cohere). Kept for back-compat / fallback only;
-                        Supermemory is intended for per-session writes only.
       - anything else (default) → ChromaDB VectorStore for local dev.
+
+    Supermemory is reserved for explicitly uploaded Session sources and cannot
+    be selected as the shared-corpus backend.
     """
     global _demo_store
     if _demo_store is None:
@@ -51,12 +49,9 @@ def get_demo_vector_store() -> Any:
                     _demo_store = PgvectorCorpusStore()
                     logger.info("Demo vector store: PgvectorCorpusStore (Cohere Embed v4 → Neon pgvector)")
                 elif backend == "supermemory":
-                    from scripts.supermemory_store import SupermemoryCorpusStore
-                    _demo_store = SupermemoryCorpusStore()
-                    logger.warning(
-                        "Demo vector store: SupermemoryCorpusStore (tag=%s) — note: this "
-                        "bypasses Cohere; the planned canonical path is VECTOR_BACKEND=pgvector",
-                        os.environ.get("SUPERMEMORY_CORPUS_TAG", "lawagent-corpus"),
+                    raise RuntimeError(
+                        "VECTOR_BACKEND=supermemory is unsupported for the shared "
+                        "corpus; use VECTOR_BACKEND=pgvector"
                     )
                 else:
                     _demo_store = get_vector_store()

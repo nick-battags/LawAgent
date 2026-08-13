@@ -5,8 +5,8 @@ Cohere Embed v4 embeds the query → Neon pgvector cosine-similarity search →
 candidates handed to Cohere Rerank 3.5 in scripts/hub_pipeline._retrieve_and_rerank.
 
 Provides the same query()/add_chunks()/count()/status()/clear() surface as
-scripts/vector_store.VectorStore and scripts/supermemory_store.SupermemoryCorpusStore
-so the demo factory can swap backends via VECTOR_BACKEND env var.
+scripts/vector_store.VectorStore so the demo factory can select pgvector or the
+local development store via VECTOR_BACKEND.
 
 Env vars:
   DATABASE_URL              — required (Neon connection string from Secret Manager)
@@ -86,7 +86,7 @@ class PgvectorCorpusStore:
             return None
 
     # ------------------------------------------------------------------
-    # Public surface (mirrors VectorStore + SupermemoryCorpusStore)
+    # Public surface (mirrors the local VectorStore)
     # ------------------------------------------------------------------
 
     def is_available(self) -> bool:

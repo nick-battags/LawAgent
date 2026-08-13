@@ -142,8 +142,8 @@
         effort: if it is unavailable or fails, the workflow may continue with the
         original text. Generate without a document sends its drafting prompt
         directly to Gemini and skips retrieval, so do not include confidential or
-        identifying information in any field. A separate regex PII firewall gates
-        every Supermemory write.
+        identifying information in any field. A separate regex PII firewall
+        re-screens explicitly uploaded Session sources before Supermemory accepts them.
       </p>
     </section>
 

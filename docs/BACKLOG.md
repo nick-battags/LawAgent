@@ -102,9 +102,9 @@ def _generate(self, prompt, ...):
 ## C. Operational hygiene (deferred from v1.0 plan)
 
 ### C1. Cloud Scheduler session-sweep job
-**Why deferred:** The v1.0 plan explicitly deprecated Cloud Scheduler jobs because Supermemory free-tier ceiling is far enough above expected traffic that manual cleanup suffices.
+**Why deferred:** Hub sessions already expose an authenticated sweep endpoint, but the scheduler wiring remains an operational decision.
 
-**When to revisit:** If Supermemory dashboard shows >50% of the free-tier quota consumed, OR if the demo gains a user base where session_id reuse becomes meaningful.
+**When to revisit:** Before wider traffic or whenever Hub-session cleanup must be enforced independently of explicit user deletion.
 
 **Implementation outline:** Hit the existing `/api/v2/hub/sweep` endpoint every hour via Cloud Scheduler. Auth via the existing `lawagent-scheduler-secret`:
 ```bash
@@ -121,14 +121,17 @@ gcloud scheduler jobs create http lawagent-hourly-sweep \
 
 ---
 
-### C2. Supermemory server-side TTL configuration
-**Why:** The Supermemory SDK v3.x removed the per-write `forget_after` parameter. Sessions are no longer auto-expiring via the SDK call.
+### C2. Research-only Session-source retention decision
+**Why:** The application performs explicit remove and Hub session delete/sweep cleanup, but standalone Research sessions are not tracked in `hub_sessions`. The application therefore does not enforce a 24-hour lifetime for Research-only uploads.
 
-**Status:** Probably handled by Supermemory's account/container-level retention settings on their dashboard. Verify by checking the Supermemory project settings.
+**Status:** Provider/account retention has not been verified. Do not claim an account-level policy is absent or configured until it is inspected separately.
 
-**Action:** Log into supermemory.ai dashboard → check that retention is set to ~24h for the `chat_exchange` / `context` / `review_summary` kinds, OR configure if not already set.
+**Decision options:**
+1. Verify and, if appropriate, configure provider account-level retention.
+2. Track Research-only sessions so scheduled application cleanup can remove their uploaded sources.
+3. Evaluate a later Neon design for Session sources using measured provider reliability and latency evidence.
 
-**Priority:** Medium. Currently the data persists indefinitely on Supermemory's side, which is a small privacy / quota concern. Not blocking, but worth setting up before any privacy-sensitive content is added.
+**Priority:** Medium. Until one option is selected, the UI tells users to remove uploaded Session sources when finished and continues to prohibit confidential or identifying material.
 
 ---
 

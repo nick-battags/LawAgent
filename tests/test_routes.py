@@ -69,6 +69,31 @@ def test_research_uses_neutral_retrieval_label(client):
     assert "Supporting sources:" not in script
 
 
+def test_research_session_source_statuses_and_polling_are_bounded(client):
+    html = client.get("/research").get_data(as_text=True)
+    script = client.get("/static/chat.js").get_data(as_text=True)
+
+    assert 'id="sourcesStatus"' in html
+    assert 'role="status"' in html
+    assert 'aria-live="polite"' in html
+    assert "Sessions auto-expire in 24h" not in html
+    assert "Remove uploaded Session sources when you are finished." in html
+
+    assert "if (!r.ok)" in script
+    assert "Session sources unavailable — try again shortly." in script
+    assert "Session source accepted and processing…" in script
+    assert "Session sources ready." in script
+    assert "failed to process." in script
+    assert "Session source could not be removed — try again." in script
+    assert "SOURCE_POLL_MAX_ATTEMPTS = 15" in script
+    assert "SOURCE_POLL_INTERVAL_MS = 2000" in script
+    assert "Still processing — try again shortly." in script
+    assert "sourceRefreshGeneration" in script
+    assert "cancelSourcePolling" in script
+    assert "beforeunload" in script
+    assert "sourceKind = c.category === 'session_context' ? 'Session' : 'Library'" in script
+
+
 def _collapse(html: str) -> str:
     """Collapse template whitespace/newlines so copy checks ignore wrapping."""
     return " ".join(html.split())

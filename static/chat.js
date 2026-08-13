@@ -5,6 +5,7 @@
 
   const sourcesList     = $('sourcesList');
   const sourcesEmptyHint = $('sourcesEmptyHint');
+  const sourcesStatus   = $('sourcesStatus');
   const addSourceBtn    = $('addSourceBtn');
   const sourceFileInput = $('sourceFileInput');
   const chatThread      = $('chatThread');
@@ -23,7 +24,7 @@
   document.addEventListener('argus:consent-invalid', () => { consentToken = null; });
 
   // ── Session ID ────────────────────────────────────────────────────────────
-  // Persisted in sessionStorage so a reload keeps the same Supermemory container.
+  // Persisted in sessionStorage so a reload keeps the same Session-source scope.
 
   let sessionId = sessionStorage.getItem('lawagent_chat_session_id');
   if (!sessionId) {
@@ -33,12 +34,78 @@
 
   // ── Sources sidebar ───────────────────────────────────────────────────────
 
-  async function loadSources() {
+  const SOURCE_POLL_MAX_ATTEMPTS = 15;
+  const SOURCE_POLL_INTERVAL_MS = 2000;
+  const addSourceDefaultLabel = addSourceBtn.textContent;
+  let sourcePollTimer = null;
+  let sourcePollAttempts = 0;
+  let sourceRefreshGeneration = 0;
+  let pageUnloading = false;
+
+  function setSourceStatus(message) {
+    sourcesStatus.textContent = message || '';
+  }
+
+  function cancelSourcePolling(resetAttempts = true) {
+    if (sourcePollTimer !== null) {
+      clearTimeout(sourcePollTimer);
+      sourcePollTimer = null;
+    }
+    if (resetAttempts) sourcePollAttempts = 0;
+  }
+
+  function scheduleSourcePoll() {
+    if (pageUnloading) return;
+    if (sourcePollAttempts >= SOURCE_POLL_MAX_ATTEMPTS) {
+      cancelSourcePolling(false);
+      setSourceStatus('Still processing — try again shortly.');
+      return;
+    }
+    if (sourcePollTimer !== null) clearTimeout(sourcePollTimer);
+    sourcePollTimer = setTimeout(async () => {
+      sourcePollTimer = null;
+      if (pageUnloading) return;
+      sourcePollAttempts += 1;
+      await loadSources({ polling: true });
+    }, SOURCE_POLL_INTERVAL_MS);
+  }
+
+  async function loadSources({ polling = false } = {}) {
+    const generation = ++sourceRefreshGeneration;
+    if (!polling) cancelSourcePolling();
     try {
       const r = await fetch(`/api/v2/context/list?session_id=${encodeURIComponent(sessionId)}`);
+      if (!r.ok) {
+        throw await window.argusConsent.errorFromResponse(r, 'Session sources unavailable');
+      }
       const d = await r.json();
-      renderSources(d.sources || []);
+      if (generation !== sourceRefreshGeneration || pageUnloading) return;
+      const sources = d.sources || [];
+      renderSources(sources);
+
+      const processingCount = sources.filter(s => s.processing_status === 'processing').length;
+      const failedCount = sources.filter(s => s.processing_status === 'failed').length;
+      if (processingCount > 0) {
+        setSourceStatus(
+          `${processingCount} Session source${processingCount === 1 ? '' : 's'} processing…`
+        );
+        scheduleSourcePoll();
+      } else {
+        cancelSourcePolling();
+        if (failedCount > 0) {
+          setSourceStatus(
+            `${failedCount} Session source${failedCount === 1 ? '' : 's'} failed to process.`
+          );
+        } else if (sources.length > 0) {
+          setSourceStatus('Session sources ready.');
+        } else {
+          setSourceStatus('');
+        }
+      }
     } catch (err) {
+      if (generation !== sourceRefreshGeneration || pageUnloading) return;
+      cancelSourcePolling();
+      setSourceStatus('Session sources unavailable — try again shortly.');
       console.warn('Sources list failed:', err);
     }
   }
@@ -54,7 +121,7 @@
       <li class="source-item" data-id="${escapeAttr(s.id || '')}">
         <div class="source-info">
           <span class="source-name" title="${escapeAttr(s.filename)}">${escapeHtml(s.filename)}</span>
-          <span class="source-meta">${(s.char_count || 0).toLocaleString()} chars</span>
+          <span class="source-meta">${(s.char_count || 0).toLocaleString()} chars · ${sourceStatusLabel(s.processing_status)}</span>
         </div>
         <button class="source-remove" aria-label="Remove ${escapeAttr(s.filename)}" title="Remove">×</button>
       </li>
@@ -69,15 +136,28 @@
         if (!confirm(`Remove "${name}" from this session?`)) return;
         btn.disabled = true;
         try {
-          await fetch(
+          const r = await fetch(
             `/api/v2/context/${encodeURIComponent(id)}?session_id=${encodeURIComponent(sessionId)}`,
             { method: 'DELETE' }
           );
-        } finally {
+          if (!r.ok) {
+            throw await window.argusConsent.errorFromResponse(r, 'Delete failed');
+          }
+          setSourceStatus('Session source removed.');
           await loadSources();
+        } catch (err) {
+          btn.disabled = false;
+          setSourceStatus('Session source could not be removed — try again.');
+          console.warn('Source delete failed:', err);
         }
       });
     });
+  }
+
+  function sourceStatusLabel(status) {
+    if (status === 'ready') return 'Ready';
+    if (status === 'failed') return 'Failed';
+    return 'Processing';
   }
 
   addSourceBtn.addEventListener('click', () => sourceFileInput.click());
@@ -87,6 +167,7 @@
     if (!file) return;
     addSourceBtn.disabled = true;
     addSourceBtn.textContent = 'Uploading…';
+    setSourceStatus('Uploading Session source…');
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -101,14 +182,28 @@
       if (!r.ok) {
         throw await window.argusConsent.errorFromResponse(r, 'Upload failed');
       }
+      const result = await r.json();
+      if (result.processing_status === 'ready') {
+        setSourceStatus('Session source ready.');
+      } else {
+        setSourceStatus('Session source accepted and processing…');
+      }
       await loadSources();
     } catch (err) {
-      if (err.code !== 'CONSENT_REQUIRED') alert(`Upload error: ${err.message}`);
+      if (err.code !== 'CONSENT_REQUIRED') {
+        setSourceStatus('Session source upload failed — try again.');
+        alert(`Upload error: ${err.message}`);
+      }
     } finally {
       addSourceBtn.disabled = false;
-      addSourceBtn.textContent = '+ Add';
+      addSourceBtn.textContent = addSourceDefaultLabel;
       sourceFileInput.value = '';
     }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    pageUnloading = true;
+    cancelSourcePolling();
   });
 
   loadSources();
