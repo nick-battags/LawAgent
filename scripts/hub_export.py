@@ -7,9 +7,6 @@ Artifacts (all written to GCS at gcs_prefix/):
   4. register.json — structured array of all changes and user decisions
 
 Footer on every Word artifact: "LawAgent demo — not legal advice."
-
-After bake, calls session_memory.write_summary() with anonymized summary.
-The PII firewall re-screens the summary; write failure does NOT block download.
 """
 
 from __future__ import annotations
@@ -74,8 +71,6 @@ def bake_session(
         artifacts["clean.docx_bytes"] = clean_bytes
         artifacts["memo.docx_bytes"] = memo_bytes
         artifacts["register.json_bytes"] = register_bytes
-
-    _write_supermemory_summary(session_id, changes, decisions, posture)
 
     logger.info(
         "Bake complete for session %s: %d accepted, %d rejected, %d pending",
@@ -344,70 +339,3 @@ def _upload_to_gcs(bucket: str, blob_name: str, data: bytes, content_type: str) 
     except Exception as exc:
         logger.error("GCS upload failed for %s/%s: %s", bucket, blob_name, exc)
         return ""
-
-
-# ---------------------------------------------------------------------------
-# Supermemory write after bake
-# ---------------------------------------------------------------------------
-
-def _write_supermemory_summary(
-    session_id: str,
-    changes: list[dict[str, Any]],
-    decisions: list[dict[str, Any]],
-    posture: str,
-) -> None:
-    category_coverage = list({c.get("category", "") for c in changes if c.get("category")})
-    decisions_summary = {
-        "accepted": sum(1 for c in changes if c.get("current_action") == "accepted"),
-        "rejected": sum(1 for c in changes if c.get("current_action") == "rejected"),
-        "edited": sum(1 for c in changes if c.get("current_action") == "edited"),
-        "dismissed": sum(1 for c in changes if c.get("current_action") == "dismissed"),
-    }
-
-    summary_text = (
-        f"Hub session {session_id} ({posture} posture). "
-        f"Reviewed {len(changes)} changes across {len(category_coverage)} categories. "
-        f"Decisions: {decisions_summary['accepted']} accepted, "
-        f"{decisions_summary['rejected']} rejected, "
-        f"{decisions_summary['edited']} edited, "
-        f"{decisions_summary['dismissed']} dismissed. "
-        f"Categories: {', '.join(sorted(category_coverage))}."
-    )
-
-    if len(summary_text) > 2000:
-        summary_text = summary_text[:1997] + "..."
-
-    # Re-screen with PII firewall before any Supermemory write. The summary is
-    # category-only by construction, but defense-in-depth: never persist input
-    # that slipped past anonymization. Skip dollar-amount checks (deal figures
-    # are legitimate in summaries).
-    try:
-        from scripts.pii_firewall import screen as _pii_screen, HUB_SKIP_PATTERNS
-        blocked, reason = _pii_screen(summary_text, skip_patterns=HUB_SKIP_PATTERNS)
-        if blocked:
-            logger.warning(
-                "Supermemory summary write blocked by PII firewall for session %s (%s) — skipping",
-                session_id, reason,
-            )
-            return
-    except Exception:
-        # Firewall import/run failure should not block the bake; log and continue
-        logger.warning("PII re-screen failed for session %s — proceeding with caution", session_id)
-
-    try:
-        from scripts.session_memory import get_session_memory
-        mem = get_session_memory(session_id)
-        mem.write_summary(
-            content=summary_text,
-            metadata={
-                "kind": "review_summary",
-                "session_id": session_id,
-                "review_id": session_id,
-                "schema_version": "v1",
-                "anonymized": True,
-                "category_coverage": category_coverage,
-                "decisions_summary": decisions_summary,
-            },
-        )
-    except Exception as exc:
-        logger.warning("Supermemory summary write failed for session %s: %s — download not affected", session_id, exc)

@@ -32,7 +32,7 @@ Each session produces four downloadable artifacts: `redline.docx` (native `<w:in
 - ~7,067 spans from the Contract Understanding Atticus Dataset (CUAD — clause-level annotations across 250+ contracts)
 - ~4,177 spans from the Merger Agreement Understanding Dataset (MAUD — question-level annotations across ~150 M&A agreements)
 
-Add a document under **Session sources** to ground the conversation in your own materials (per-session, session-scoped server-side TTL). Argus attempts to remove identifying details before retrieval, but this is best effort and may pass the original text through, so use public or fictional material only. Answers distinguish those uploads from the always-searched **Argus research library** and present the retrieved material as **Retrieved sources**.
+Add a document under **Session sources** to ground the conversation in your own materials. Argus attempts to remove identifying details before retrieval, but this is best effort and may pass the original text through, so use public or fictional material only. Answers distinguish those uploads from the always-searched **Argus research library** and present the retrieved material as **Retrieved sources**. Remove uploaded Session sources when you are finished.
 
 ---
 
@@ -55,7 +55,8 @@ graph LR
   B --> C[clean.docx]
   B --> MEMO[memo.docx]
   B --> J[register.json]
-  H -.->|best-effort anonymized<br/>summary| SM[(Supermemory<br/>session-scoped)]
+  M -->|explicit Session source upload| SM[(Supermemory<br/>Session sources only)]
+  SM -.->|optional ready source context| G
 ```
 
 Research and the document-backed Revise and Review modes attempt to remove
@@ -64,9 +65,10 @@ Flash-Lite is unavailable, the provider call fails, or the configured provider
 is not Vertex, the workflow may continue with the original text. Generate
 without a document sends its drafting prompt directly to Gemini and
 intentionally skips anonymization and corpus retrieval. In every mode, do not
-submit confidential or identifying information. The bake step writes
-best-effort anonymized summaries to Supermemory only after a post-hoc PII
-firewall re-check.
+submit confidential or identifying information. Neon pgvector is the shared
+research corpus. Supermemory is optional and limited to explicitly uploaded
+Session sources after a post-anonymization safety check; answers, review
+summaries, and baked artifacts are not written there.
 
 The verified route, workflow, and data-flow constraints for the renovation are
 recorded in [docs/UI_RENOVATION.md](docs/UI_RENOVATION.md).
@@ -83,7 +85,7 @@ Flask · Vertex AI Gemini 2.5 Flash + Flash-Lite · Cohere Embed v4 + Rerank 3.5
 | Generator | Vertex Gemini 2.5 Flash | Long context, fast, cheap, no training on our data |
 | Anonymizer | Vertex Gemini 2.5 Flash-Lite | 60–75% cheaper than Flash; per-session two-way pseudonym map in process memory only |
 | Database | Neon (Free tier) | Serverless Postgres, scales to zero, pgvector support, $0/mo at portfolio traffic |
-| Session memory | Supermemory (Free tier) | Per-session container tags keyed by session_id; anonymized writes only; server-side TTL managed at the Supermemory account level |
+| Session sources | Supermemory (optional) | Explicitly uploaded, best-effort anonymized context only; add/list/recall/remove plus Hub delete/sweep cleanup |
 | Demo deploy | Cloud Run (us-central1) + Cloudflare DNS | Cloud Run hosts the Flask app behind `lawagent.nickvbattaglia.com`, with `min-instances=1` to eliminate cold start; Cloudflare proxies DNS |
 | Portfolio deploy | Cloudflare Pages | Static Astro build at `nickvbattaglia.com`, auto-deployed on push |
 
@@ -135,7 +137,7 @@ Required infrastructure (one-time):
 - GCP project with Vertex AI, Cloud Run, Cloud Build, Secret Manager enabled
 - Neon Postgres project with `pgvector` extension
 - Cohere account with a production API key
-- Supermemory account
+- Supermemory account (optional; required only for uploaded Session sources)
 - Cloudflare account managing the apex domain DNS
 - Cloud Run service account with `roles/aiplatform.user`, `roles/secretmanager.secretAccessor`, `roles/storage.objectAdmin` (scoped to the demo bucket)
 
@@ -169,7 +171,8 @@ LawAgent/
 │   ├── hub_export.py           — Four-artifact bake (redline / clean / memo / register)
 │   ├── llm_provider.py         — VertexProvider (Cohere + Gemini) + OllamaProvider
 │   ├── pgvector_store.py       — Cohere-embedded pgvector retrieval
-│   ├── supermemory_store.py    — Per-session Supermemory writes
+│   ├── supermemory_adapter.py  — SDK boundary for uploaded Session sources
+│   ├── session_memory.py       — Context-only Session-source safety facade
 │   ├── anonymizer.py           — Flash-Lite pseudonymization with 24h TTL map
 │   ├── pii_firewall.py         — Regex-based PII gate (pre-LLM + post-anonymizer)
 │   ├── context_loader.py       — Per-session document upload (NotebookLM-style)

@@ -7,7 +7,7 @@ Runs hourly via Cloud Scheduler. For each expired session:
 
 Exit code 0 = success (Cloud Run Jobs retry on non-zero exit).
 
-Env vars: DATABASE_URL, SUPERMEMORY_API_KEY, SESSION_MEMORY_TTL_HOURS
+Env vars: DATABASE_URL, SUPERMEMORY_API_KEY
 """
 
 from __future__ import annotations

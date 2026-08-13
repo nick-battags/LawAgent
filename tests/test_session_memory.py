@@ -1,133 +1,133 @@
-"""Tests for SessionMemory (Brief 2.2)."""
+"""Safety and behavior tests for the context-only SessionMemory facade."""
 
 from __future__ import annotations
 
-import os
-from unittest.mock import MagicMock, patch
-
 import pytest
 
+from scripts.session_memory import (
+    SessionContextValidationError,
+    SessionMemory,
+    get_session_memory,
+)
+from scripts.supermemory_adapter import SupermemoryUnavailableError
 
-class TestSessionMemory:
-    SESSION_ID = "test-session-abc123"
 
-    def _make_mem(self, monkeypatch):
-        monkeypatch.setenv("SUPERMEMORY_API_KEY", "sm_test")
-        monkeypatch.setenv("SESSION_MEMORY_TTL_HOURS", "24")
-        monkeypatch.setenv("SESSION_MEMORY_MAX_SUMMARY_CHARS", "2000")
-        monkeypatch.setenv("REVIEW_WRITES_ENABLED", "true")
-        from scripts.session_memory import SessionMemory
-        return SessionMemory(self.SESSION_ID)
+class AdapterFake:
+    def __init__(self) -> None:
+        self.add_result = {"id": "doc-1", "processing_status": "processing"}
+        self.recall_result: list[dict] = []
+        self.clear_result = True
+        self.raise_on_add = False
+        self.raise_on_clear = False
+        self.added: list[dict] = []
 
-    # -- write_summary validation --
-
-    def test_write_summary_succeeds_with_valid_content(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        mock_client = MagicMock()
-        mock_client.memories.add.return_value.id = "mem-xyz"
-        with patch.object(mem, "_get_client", return_value=mock_client):
-            mem_id = mem.write_summary(
-                content="Anonymized review summary of NDA between [PARTY_A] and [COMPANY_1].",
-                metadata={"anonymized": True, "kind": "review_summary"},
-            )
-        assert mem_id == "mem-xyz"
-
-    def test_write_summary_blocked_when_writes_disabled(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        monkeypatch.setenv("REVIEW_WRITES_ENABLED", "false")
-        result = mem.write_summary("content", metadata={"anonymized": True})
-        assert result is None
-
-    def test_write_summary_blocked_when_not_anonymized(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        result = mem.write_summary("content", metadata={"anonymized": False})
-        assert result is None
-
-    def test_write_summary_blocked_when_too_long(self, monkeypatch):
-        monkeypatch.setenv("SESSION_MEMORY_MAX_SUMMARY_CHARS", "10")
-        mem = self._make_mem(monkeypatch)
-        result = mem.write_summary("x" * 11, metadata={"anonymized": True})
-        assert result is None
-
-    def test_write_summary_blocked_on_pii_token(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        result = mem.write_summary(
-            "Party agreed, email: user@example.com for notifications.",
-            metadata={"anonymized": True},
+    def add_context(self, session_id, content, metadata):
+        if self.raise_on_add:
+            raise SupermemoryUnavailableError("unavailable")
+        self.added.append(
+            {
+                "session_id": session_id,
+                "content": content,
+                "metadata": metadata,
+            }
         )
-        assert result is None
+        return self.add_result
 
-    def test_write_summary_returns_none_on_api_error(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        with patch.object(mem, "_get_client", side_effect=RuntimeError("API down")):
-            result = mem.write_summary("Safe content", metadata={"anonymized": True})
-        assert result is None
+    def list_context(self, session_id):
+        return []
 
-    # -- write (kind-gated) --
+    def recall_context(self, session_id, query, limit=4):
+        return self.recall_result
 
-    def test_write_context_kind_succeeds(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        mock_client = MagicMock()
-        mock_client.memories.add.return_value.id = "mem-ctx"
-        with patch.object(mem, "_get_client", return_value=mock_client):
-            result = mem.write("Anonymized context chunk.", kind="context",
-                               metadata={"anonymized": True})
-        assert result == "mem-ctx"
+    def delete_context(self, session_id, document_id):
+        return True
 
-    def test_write_rejects_unknown_kind(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        result = mem.write("content", kind="raw_pii_dump", metadata={"anonymized": True})
-        assert result is None
-
-    # -- recall --
-
-    def test_recall_returns_list(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        mock_result = MagicMock()
-        mock_result.content = "Prior session context."
-        mock_result.metadata = {"kind": "session_summary"}
-        mock_result.score = 0.9
-        mock_client = MagicMock()
-        mock_client.search.execute.return_value.results = [mock_result]
-        with patch.object(mem, "_get_client", return_value=mock_client):
-            results = mem.recall(query="indemnification", kind="session_summary")
-        assert len(results) == 1
-        assert results[0]["content"] == "Prior session context."
-
-    def test_recall_returns_empty_on_error(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        with patch.object(mem, "_get_client", side_effect=RuntimeError("fail")):
-            results = mem.recall()
-        assert results == []
-
-    # -- clear --
-
-    def test_clear_calls_supermemory_delete(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        mock_client = MagicMock()
-        with patch.object(mem, "_get_client", return_value=mock_client):
-            result = mem.clear()
-        assert result is True
-        mock_client.containers.delete.assert_called_once_with(container_tag=self.SESSION_ID)
-
-    def test_clear_returns_false_on_error(self, monkeypatch):
-        mem = self._make_mem(monkeypatch)
-        with patch.object(mem, "_get_client", side_effect=RuntimeError("fail")):
-            result = mem.clear()
-        assert result is False
+    def clear_session(self, session_id):
+        if self.raise_on_clear:
+            raise SupermemoryUnavailableError("unavailable")
+        return self.clear_result
 
 
-class TestGetSessionMemory:
-    def test_factory_returns_session_memory(self, monkeypatch):
-        monkeypatch.setenv("SUPERMEMORY_API_KEY", "sm_test")
-        from scripts.session_memory import get_session_memory, SessionMemory
-        mem = get_session_memory("session-123")
-        assert isinstance(mem, SessionMemory)
-        assert mem.session_id == "session-123"
+def test_anonymized_context_is_accepted():
+    adapter = AdapterFake()
+    memory = SessionMemory("session-a", adapter=adapter)
 
-    def test_factory_returns_new_instance_each_call(self, monkeypatch):
-        monkeypatch.setenv("SUPERMEMORY_API_KEY", "sm_test")
-        from scripts.session_memory import get_session_memory
-        a = get_session_memory("s1")
-        b = get_session_memory("s1")
-        assert a is not b
+    result = memory.add_context(
+        "Anonymized context for [PARTY_A].",
+        {"anonymized": True, "source": "playbook.pdf"},
+    )
+
+    assert result["id"] == "doc-1"
+    assert adapter.added[0]["metadata"]["kind"] == "context"
+
+
+def test_unanonymized_metadata_is_rejected():
+    memory = SessionMemory("session-a", adapter=AdapterFake())
+
+    with pytest.raises(SessionContextValidationError):
+        memory.add_context("Safe content", {"anonymized": False})
+
+
+def test_context_limit_accepts_boundary_and_rejects_above(monkeypatch):
+    monkeypatch.setenv("SESSION_CONTEXT_MAX_CHARS", "40")
+    adapter = AdapterFake()
+    memory = SessionMemory("session-a", adapter=adapter)
+
+    memory.add_context("x" * 40, {"anonymized": True})
+    with pytest.raises(SessionContextValidationError):
+        memory.add_context("x" * 41, {"anonymized": True})
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Contact user@example.com for the source.",
+        "This came from my client and must remain private.",
+    ],
+)
+def test_pii_heuristic_and_firewall_reject_actual_payload(content):
+    memory = SessionMemory("session-a", adapter=AdapterFake())
+
+    with pytest.raises(SessionContextValidationError):
+        memory.add_context(content, {"anonymized": True})
+
+
+def test_provider_failure_is_stable_and_predictable():
+    adapter = AdapterFake()
+    adapter.raise_on_add = True
+    memory = SessionMemory("session-a", adapter=adapter)
+
+    with pytest.raises(SupermemoryUnavailableError):
+        memory.add_context("Safe context", {"anonymized": True})
+
+
+def test_recall_returns_only_nonempty_strings():
+    adapter = AdapterFake()
+    adapter.recall_result = [
+        {"content": "Useful source text", "metadata": {}, "score": 1.0},
+        {"content": "  ", "metadata": {}, "score": 0.5},
+        {"content": None, "metadata": {}, "score": 0.1},
+    ]
+    memory = SessionMemory("session-a", adapter=adapter)
+
+    assert memory.recall_context("query") == [adapter.recall_result[0]]
+
+
+def test_clear_reports_actual_success_and_failure():
+    adapter = AdapterFake()
+    memory = SessionMemory("session-a", adapter=adapter)
+
+    assert memory.clear() is True
+    adapter.clear_result = False
+    assert memory.clear() is False
+    adapter.raise_on_clear = True
+    assert memory.clear() is False
+
+
+def test_factory_returns_new_context_facades():
+    first = get_session_memory("session-a")
+    second = get_session_memory("session-a")
+
+    assert isinstance(first, SessionMemory)
+    assert first.session_id == "session-a"
+    assert first is not second

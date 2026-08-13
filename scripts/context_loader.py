@@ -1,12 +1,4 @@
-"""Context attachment handler for the Drafting & Review Hub.
-
-POST /api/v2/context/attach
-  Accepts .docx, .pdf, or pasted text. Anonymizes via Flash-Lite,
-  embeds via Cohere Embed v4, and writes to Supermemory under the
-  session_id container tag with metadata.kind="context".
-
-Reused across drafting, review, and chat for the rest of the session.
-"""
+"""Validate, extract, anonymize, and attach one Session source."""
 
 from __future__ import annotations
 
@@ -14,9 +6,63 @@ import logging
 import os
 from typing import Any
 
+from scripts.session_memory import (
+    DEFAULT_SESSION_CONTEXT_MAX_CHARS,
+    SessionContextValidationError,
+    get_session_memory,
+)
+from scripts.supermemory_adapter import (
+    SupermemoryRejectedError,
+    SupermemoryUnavailableError,
+)
+
 logger = logging.getLogger(__name__)
 
 MAX_BYTES = int(os.environ.get("HUB_MAX_BYTES", str(25 * 1024 * 1024)))
+
+
+def _validation_error(message: str) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "error_code": "invalid_source",
+        "error": message,
+    }
+
+
+def _provider_error(
+    code: str,
+    message: str,
+    processing_status: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "status": "error",
+        "error_code": code,
+        "error": message,
+    }
+    if processing_status:
+        result["processing_status"] = processing_status
+    return result
+
+
+def _prepare_context_payload(
+    source_label: str,
+    anonymized_text: str,
+    max_chars: int,
+) -> tuple[str, int, bool]:
+    prefix = f"[Context: {source_label}]\n"
+    available = max_chars - len(prefix)
+    if available <= 0:
+        raise SessionContextValidationError("Session source name is too long")
+    truncated = len(anonymized_text) > available
+    if truncated:
+        body = (
+            anonymized_text[: max(0, available - 3)] + "..."
+            if available >= 3
+            else anonymized_text[:available]
+        )
+    else:
+        body = anonymized_text
+    return prefix + body, len(body), truncated
 
 
 def attach_context(
@@ -25,67 +71,95 @@ def attach_context(
     file_bytes: bytes | None = None,
     filename: str | None = None,
 ) -> dict[str, Any]:
-    """Ingest a context attachment for a hub session.
-
-    Accepts either pasted text (content) or a file (file_bytes + filename).
-    Returns {"memory_id": str, "char_count": int, "status": "ok"|"error"}.
-    """
+    """Attach pasted text or an extracted PDF/DOCX to one session."""
     if file_bytes and len(file_bytes) > MAX_BYTES:
-        return {"status": "error", "error": f"File exceeds {MAX_BYTES // (1024*1024)} MB limit"}
+        return _validation_error(
+            f"File exceeds {MAX_BYTES // (1024 * 1024)} MB limit"
+        )
 
-    # Extract text
     if file_bytes and filename:
         try:
             from scripts.hub_pipeline import extract_text
+
             raw_text = extract_text(file_bytes, filename)
-        except Exception as exc:
-            logger.warning("Context attachment extraction failed for session %s: %s", session_id, exc)
-            return {"status": "error", "error": str(exc)}
+        except Exception:
+            logger.warning("Session source extraction failed")
+            return _validation_error(
+                "The source could not be extracted. Use a valid PDF or DOCX file."
+            )
     elif content:
         raw_text = content
     else:
-        return {"status": "error", "error": "Provide either content text or a file"}
+        return _validation_error("Provide either content text or a file")
 
     if not raw_text.strip():
-        return {"status": "error", "error": "Extracted text is empty"}
+        return _validation_error("Extracted text is empty")
 
-    # PII screen before processing
     from scripts.pii_firewall import screen
-    blocked, reason = screen(raw_text[:2000])  # screen the first 2000 chars
+
+    blocked, _reason = screen(raw_text[:2000])
     if blocked:
-        logger.warning("Context attachment blocked by PII firewall for session %s: %s", session_id, reason)
-        return {"status": "error", "error": f"Content blocked: {reason}"}
-
-    # Anonymize
-    from scripts.anonymizer import get_session_anonymizer
-    anon = get_session_anonymizer(session_id)
-    anon_text, _ = anon.anonymize(raw_text)
-
-    # Write to Supermemory
-    source_label = filename or "pasted text"
-    memory_content = f"[Context: {source_label}]\n{anon_text}"
-    if len(memory_content) > 4000:
-        memory_content = memory_content[:3997] + "..."
-
-    from scripts.session_memory import get_session_memory
-    mem = get_session_memory(session_id)
-    memory_id = mem.write(
-        content=memory_content,
-        kind="context",
-        metadata={
-            "anonymized": True,
-            "source": source_label,
-            "char_count": len(anon_text),
-        },
-    )
-
-    if memory_id:
-        logger.info(
-            "Context attached for session %s: %d chars from %s (id=%s)",
-            session_id, len(anon_text), source_label, memory_id,
+        logger.warning("Session source blocked by pre-processing safety check")
+        return _validation_error(
+            "Use public or fictional material without identifying information."
         )
-        return {"status": "ok", "memory_id": memory_id, "char_count": len(anon_text)}
-    else:
-        logger.warning("Context write failed or was blocked for session %s", session_id)
-        return {"status": "ok", "memory_id": None, "char_count": len(anon_text),
-                "note": "Attachment processed but not persisted to session memory"}
+
+    from scripts.anonymizer import get_session_anonymizer
+
+    anonymizer = get_session_anonymizer(session_id)
+    anonymized_text, _anonymizer_map = anonymizer.anonymize(raw_text)
+
+    source_label = filename or "pasted text"
+    memory = get_session_memory(session_id)
+    try:
+        memory_content, stored_char_count, truncated = _prepare_context_payload(
+            source_label,
+            anonymized_text,
+            memory.max_chars or DEFAULT_SESSION_CONTEXT_MAX_CHARS,
+        )
+        accepted = memory.add_context(
+            content=memory_content,
+            metadata={
+                "anonymized": True,
+                "source": source_label,
+                "char_count": stored_char_count,
+                "truncated": truncated,
+            },
+        )
+    except SessionContextValidationError as exc:
+        return _validation_error(str(exc))
+    except SupermemoryRejectedError:
+        return _provider_error(
+            "provider_rejected",
+            "The Session source provider rejected the upload.",
+        )
+    except SupermemoryUnavailableError:
+        return _provider_error(
+            "provider_unavailable",
+            "Session sources are temporarily unavailable. Try again shortly.",
+        )
+
+    document_id = str(accepted.get("id") or "").strip()
+    processing_status = str(
+        accepted.get("processing_status") or "processing"
+    )
+    if not document_id:
+        return _provider_error(
+            "provider_rejected",
+            "The Session source provider did not accept the upload.",
+        )
+    if processing_status == "failed":
+        return _provider_error(
+            "provider_rejected",
+            "The Session source provider could not process the upload.",
+            processing_status="failed",
+        )
+
+    return {
+        "status": "ok",
+        "id": document_id,
+        "memory_id": document_id,
+        "char_count": stored_char_count,
+        "processing_status": processing_status,
+        "truncated": truncated,
+    }
