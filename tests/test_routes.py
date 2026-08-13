@@ -117,6 +117,16 @@ def test_conversation_surfaces_keep_threads_and_composers_width_stable(client):
     assert "appendAskMessage('assistant', '')" in hub_script
 
 
+def test_document_workspace_secondary_text_uses_readable_contrast(client):
+    hub_css = client.get("/static/hub.css").get_data(as_text=True)
+
+    assert "--workspace-secondary-ink: var(--ink-muted, #5C5247);" in hub_css
+    assert "color: var(--workspace-secondary-ink);" in hub_css
+    assert "background: var(--oxblood, #722F37);" in hub_css
+    assert "#saveBakeBtn:disabled" in hub_css
+    assert ".hub-download-bar .btn-download:disabled" in hub_css
+
+
 def _collapse(html: str) -> str:
     """Collapse template whitespace/newlines so copy checks ignore wrapping."""
     return " ".join(html.split())

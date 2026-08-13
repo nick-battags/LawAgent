@@ -353,6 +353,7 @@ button.primary.btn-sm { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
 /* ── Editing Hub ─────────────────────────────────────────────────────────── */
 
 .editing-hub {
+  --workspace-secondary-ink: var(--ink-muted, #5C5247);
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--masthead-height, 56px));
@@ -997,13 +998,16 @@ pre.doc-text {
 }
 
 #saveBakeBtn {
+  border-color: var(--oxblood, #722F37);
+  background: var(--oxblood, #722F37);
   color: #FFFFFF;
   box-shadow: 0 3px 8px rgba(114, 47, 55, 0.22);
 }
 
 #saveBakeBtn:hover,
-#saveBakeBtn:active,
-#saveBakeBtn:disabled {
+#saveBakeBtn:active {
+  border-color: var(--oxblood-strong, #5C1F26);
+  background: var(--oxblood-strong, #5C1F26);
   color: #FFFFFF;
 }
 
@@ -1453,6 +1457,48 @@ pre.doc-text {
   color: var(--ink-faint, #6E6353);
 }
 
+/* Keep supporting workspace text comfortably readable on warm paper. These
+   labels remain visually secondary through size and weight rather than low
+   contrast. Active tabs and status colors continue to override this group. */
+.hub-toolbar .pill,
+.matter-summary,
+.matter-nav-meta,
+#reviewProgressLabel,
+.decision-ledger dt,
+.matter-session-note,
+.document-pane-meta,
+.workspace-body .side-tab,
+.panel-intro span,
+.workspace-body .card-anchor,
+.workspace-body .card-category,
+.workspace-body .card-proposed,
+.workspace-body .ask-anchor label,
+.workspace-body .typing-dots,
+.ask-empty,
+.ask-input-hint,
+.export-bar-heading span {
+  color: var(--workspace-secondary-ink);
+}
+
+.workspace-body .action-badge.action-pending,
+.workspace-body .action-badge.action-dismissed {
+  border-color: var(--border-strong, #B5A893);
+  color: var(--workspace-secondary-ink);
+}
+
+.hub-toolbar .btn-sm:disabled {
+  opacity: 0.74;
+  box-shadow: none;
+}
+
+#saveBakeBtn:disabled {
+  border-color: var(--border-strong, #B5A893);
+  background: var(--surface-raised, rgba(31, 27, 23, 0.05));
+  color: var(--workspace-secondary-ink);
+  opacity: 1;
+  box-shadow: none;
+}
+
 /* Matter exports */
 
 .hub-download-bar {
@@ -1475,7 +1521,7 @@ pre.doc-text {
 }
 
 .export-bar-heading span {
-  color: var(--ink-faint, #6E6353);
+  color: var(--workspace-secondary-ink);
   font-size: 0.65rem;
 }
 
@@ -1514,7 +1560,9 @@ pre.doc-text {
 }
 
 .hub-download-bar .btn-download:disabled {
-  opacity: 0.58;
+  color: var(--workspace-secondary-ink);
+  opacity: 0.72;
+  box-shadow: none;
 }
 
 .hub-download-bar .btn-download[data-state="downloaded"] {
