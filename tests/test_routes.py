@@ -117,6 +117,26 @@ def test_conversation_surfaces_keep_threads_and_composers_width_stable(client):
     assert "appendAskMessage('assistant', '')" in hub_script
 
 
+def test_clause_research_announces_streams_and_restores_failed_questions(client):
+    hub_html = client.get("/hub").get_data(as_text=True)
+    hub_script = client.get("/static/hub.js").get_data(as_text=True)
+
+    assert 'role="log" aria-live="polite" aria-relevant="additions text"' in hub_html
+
+    submit_ask = hub_script.split("async function submitAsk()", 1)[1].split(
+        "function restoreAskQuestion", 1
+    )[0]
+    assert submit_ask.index("askAnswer.setAttribute('aria-busy', 'true')") < submit_ask.index(
+        "appendAskMessage('assistant', '')"
+    )
+    assert "restoreAskQuestion(question);" in submit_ask
+
+    restore_ask = hub_script.split("function restoreAskQuestion", 1)[1].split(
+        "function appendAskMessage", 1
+    )[0]
+    assert "if (!askQuestion.value.trim()) askQuestion.value = question;" in restore_ask
+
+
 def test_document_workspace_secondary_text_uses_readable_contrast(client):
     hub_css = client.get("/static/hub.css").get_data(as_text=True)
 

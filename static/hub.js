@@ -870,13 +870,15 @@
 
     askAnswer.querySelector('.ask-empty')?.remove();
     appendAskMessage('user', question);
+    // Hold live-region announcements until the streamed assistant turn has
+    // content, rather than exposing an empty message to assistive technology.
+    askAnswer.setAttribute('aria-busy', 'true');
     const assistantMessage = appendAskMessage('assistant', '');
     const assistantBubble = assistantMessage.querySelector('.ask-bubble');
     assistantBubble.innerHTML = '<span class="typing-dots">…</span>';
 
     askQuestion.value = '';
     askSubmit.disabled = true;
-    askAnswer.setAttribute('aria-busy', 'true');
     scrollAskBottom();
 
     try {
@@ -899,6 +901,7 @@
         assistantBubble.textContent = data.answer || JSON.stringify(data);
       }
     } catch (err) {
+      restoreAskQuestion(question);
       assistantMessage.classList.add('error');
       assistantBubble.textContent = `Error: ${err.message}`;
     } finally {
@@ -906,6 +909,12 @@
       askAnswer.setAttribute('aria-busy', 'false');
       scrollAskBottom();
     }
+  }
+
+  function restoreAskQuestion(question) {
+    // A user may begin drafting the next question while the request is in
+    // flight. Restore only into an empty composer so newer text is preserved.
+    if (!askQuestion.value.trim()) askQuestion.value = question;
   }
 
   function appendAskMessage(role, text) {
