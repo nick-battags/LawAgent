@@ -45,17 +45,18 @@
   <main id="main" class="chat-layout" tabindex="-1">
 
     <!-- Left: session sources sidebar -->
-    <aside class="sources-sidebar">
+    <aside class="sources-sidebar" aria-labelledby="sourcesHeading">
       <div class="sidebar-header">
-        <h2>Session sources</h2>
+        <div>
+          <p class="sidebar-kicker">Working set</p>
+          <h2 id="sourcesHeading">Session sources</h2>
+        </div>
         <button id="addSourceBtn" class="btn-add">+ Add document</button>
       </div>
       <p class="sidebar-hint muted" id="sourcesEmptyHint">
-        No session documents added. Add a playbook, term sheet, or prior draft
-        (PDF or DOCX) to include it in this session. The Argus research library
-        is searched automatically on every question. Argus attempts to remove
-        identifying details before retrieval, but this is best effort and may
-        pass the original text through — use public or fictional material only.
+        No documents yet. Add a PDF or DOCX for this session; the Argus library
+        is searched automatically. Identifying-detail removal is best effort,
+        so use public or fictional material only.
       </p>
       <p id="sourcesStatus" class="sidebar-hint muted" role="status" aria-live="polite"></p>
       <ul id="sourcesList" class="sources-list"></ul>
@@ -63,29 +64,47 @@
     </aside>
 
     <!-- Right: chat thread + input -->
-    <section class="chat-main">
-      <div id="chatThread" class="chat-thread">
+    <section class="chat-main" aria-labelledby="researchHeading">
+      <header class="chat-heading">
+        <div>
+          <p class="chat-kicker">Research desk</p>
+          <h1 id="researchHeading">M&amp;A drafting research</h1>
+        </div>
+        <p>Curated library <span aria-hidden="true">+</span> Session sources</p>
+      </header>
+
+      <div id="chatThread" class="chat-thread" role="log" aria-live="polite" aria-relevant="additions">
         <div class="chat-empty">
-          <h1>Research M&amp;A drafting patterns</h1>
-          <p class="muted">e.g. &ldquo;What&rsquo;s a typical buy-side indemnification cap?&rdquo;
-             or &ldquo;How does a tipping basket differ from a deductible basket?&rdquo;</p>
+          <p class="chat-empty-kicker">Start a focused inquiry</p>
+          <h2>Compare language, terms, and drafting patterns.</h2>
+          <p class="muted">Ask a specific question, or begin with one of these examples.</p>
+          <div class="prompt-suggestions" aria-label="Example research questions">
+            <button type="button" data-research-prompt="What is a typical buy-side indemnification cap?">
+              Typical buy-side indemnification cap
+            </button>
+            <button type="button" data-research-prompt="How does a tipping basket differ from a deductible basket?">
+              Tipping basket vs. deductible basket
+            </button>
+          </div>
         </div>
       </div>
 
-      <form id="chatForm" class="chat-input-row" novalidate>
-        <textarea id="chatInput" rows="2"
-          aria-label="Research question"
-          placeholder="Ask about an M&amp;A term or drafting pattern&#8230;"
-          maxlength="500"></textarea>
-        <button type="submit" id="sendBtn" class="primary">
-          <span id="sendLabel">Research</span>
-          <span id="sendSpinner" class="spinner" hidden></span>
-        </button>
-      </form>
-      <p class="chat-disclaimer shell-disclaimer">
-        Portfolio demonstration &mdash; not legal advice. Do not enter confidential
-        or identifying information. Remove uploaded Session sources when you are finished.
-      </p>
+      <div class="chat-composer">
+        <form id="chatForm" class="chat-input-row" novalidate>
+          <textarea id="chatInput" rows="2"
+            aria-label="Research question"
+            placeholder="Ask about an M&amp;A term or drafting pattern&#8230;"
+            maxlength="500"></textarea>
+          <button type="submit" id="sendBtn" class="primary">
+            <span id="sendLabel">Research</span>
+            <span id="sendSpinner" class="spinner" hidden></span>
+          </button>
+        </form>
+        <p class="chat-disclaimer shell-disclaimer">
+          Portfolio demonstration &mdash; not legal advice. Do not enter confidential
+          or identifying information. Remove uploaded Session sources when you are finished.
+        </p>
+      </div>
     </section>
 
   </main>
